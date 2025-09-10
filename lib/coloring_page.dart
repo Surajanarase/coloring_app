@@ -16,18 +16,28 @@ class ColoringPage extends StatefulWidget {
 class _ColoringPageState extends State<ColoringPage> {
   String? _svgString;
   XmlDocument? _doc;
-  List<String> _ids = [];
-  String? _selectedId;
 
   final Map<String, ui.Path> _paths = {};
   double _vbMinX = 0, _vbMinY = 0, _vbWidth = 0, _vbHeight = 0;
 
   final List<Color> _palette = [
-    Colors.red, Colors.pink, Colors.orange, Colors.yellow,
-    Colors.green, Colors.teal, Colors.blue, Colors.purple,
-    Colors.brown, Colors.grey, const Color(0xFFFFE0BD), // skin
-    const Color(0xFF8D5524), Colors.black, Colors.white,
+    Colors.red,
+    Colors.pink,
+    Colors.orange,
+    Colors.yellow,
+    Colors.green,
+    Colors.teal,
+    Colors.blue,
+    Colors.purple,
+    Colors.brown,
+    Colors.grey,
+    const Color(0xFFFFE0BD), // skin
+    const Color(0xFF8D5524),
+    Colors.black,
+    Colors.white,
   ];
+
+  Color? _selectedColor;
 
   @override
   void initState() {
@@ -35,28 +45,23 @@ class _ColoringPageState extends State<ColoringPage> {
     _loadSvg();
   }
 
-  /// Load the SVG from assets, but fall back to a dummy one in tests.
   Future<void> _loadSvg() async {
     try {
       final raw = await rootBundle.loadString('assets/colouring_svg.svg');
       _svgString = raw;
       _doc = XmlDocument.parse(raw);
-      _extractIds();
       _parseViewBox();
       _buildPathsFromDoc();
     } catch (_) {
-      // Fallback in tests (asset not available in test bundle)
-      _svgString = "<svg viewBox='0 0 100 100'></svg>";
+      // fallback simple svg for tests
+      _svgString =
+          "<svg viewBox='0 0 100 100'><rect id='rect1' x='10' y='10' width='80' height='80' fill='white' stroke='black'/></svg>";
+      _doc = XmlDocument.parse(_svgString!);
+      _parseViewBox();
+      _buildPathsFromDoc();
     }
-    if (mounted) setState(() {});
-  }
-
-  void _extractIds() {
-    _ids = [];
-    if (_doc == null) return;
-    for (final el in _doc!.descendants.whereType<XmlElement>()) {
-      final id = el.getAttribute('id');
-      if (id != null && id.trim().isNotEmpty) _ids.add(id);
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -65,7 +70,8 @@ class _ColoringPageState extends State<ColoringPage> {
     final root = _doc!.rootElement;
     final vb = root.getAttribute('viewBox');
     if (vb != null) {
-      final parts = vb.split(RegExp(r'[\s,]+')).map((s) => double.tryParse(s) ?? 0.0).toList();
+      final parts =
+          vb.split(RegExp(r'[\s,]+')).map((s) => double.tryParse(s) ?? 0.0).toList();
       if (parts.length >= 4) {
         _vbMinX = parts[0];
         _vbMinY = parts[1];
@@ -80,92 +86,249 @@ class _ColoringPageState extends State<ColoringPage> {
     _vbMinY = 0;
   }
 
+  bool _isDrawableName(String name) {
+    return name == 'path' ||
+        name == 'rect' ||
+        name == 'circle' ||
+        name == 'ellipse' ||
+        name == 'polygon' ||
+        name == 'polyline';
+  }
+
+  ui.Path? pathFromElement(XmlElement el) {
+    final name = el.name.local.toLowerCase();
+    try {
+      if (name == 'path') {
+        final d = el.getAttribute('d');
+        if (d != null && d.trim().isNotEmpty) return parseSvgPathData(d);
+      } else if (name == 'rect') {
+        final x = double.tryParse(el.getAttribute('x') ?? '0') ?? 0;
+        final y = double.tryParse(el.getAttribute('y') ?? '0') ?? 0;
+        final w = double.tryParse(el.getAttribute('width') ?? '0') ?? 0;
+        final h = double.tryParse(el.getAttribute('height') ?? '0') ?? 0;
+        final rx = double.tryParse(el.getAttribute('rx') ?? '0') ?? 0;
+        final tmp = ui.Path();
+        if (rx > 0) {
+          tmp.addRRect(RRect.fromRectXY(Rect.fromLTWH(x, y, w, h), rx, rx));
+        } else {
+          tmp.addRect(Rect.fromLTWH(x, y, w, h));
+        }
+        return tmp;
+      } else if (name == 'circle') {
+        final cx = double.tryParse(el.getAttribute('cx') ?? '0') ?? 0;
+        final cy = double.tryParse(el.getAttribute('cy') ?? '0') ?? 0;
+        final r = double.tryParse(el.getAttribute('r') ?? '0') ?? 0;
+        return ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      } else if (name == 'ellipse') {
+        final cx = double.tryParse(el.getAttribute('cx') ?? '0') ?? 0;
+        final cy = double.tryParse(el.getAttribute('cy') ?? '0') ?? 0;
+        final rx = double.tryParse(el.getAttribute('rx') ?? '0') ?? 0;
+        final ry = double.tryParse(el.getAttribute('ry') ?? '0') ?? 0;
+        return ui.Path()
+          ..addOval(Rect.fromCenter(center: Offset(cx, cy), width: rx * 2, height: ry * 2));
+      } else if (name == 'polygon' || name == 'polyline') {
+        final pts = el.getAttribute('points') ?? '';
+        final coords = pts
+            .split(RegExp(r'[\s,]+'))
+            .map((s) => double.tryParse(s))
+            .where((v) => v != null)
+            .map((v) => v!)
+            .toList();
+        if (coords.length >= 4) {
+          final tmp = ui.Path();
+          tmp.moveTo(coords[0], coords[1]);
+          for (int i = 2; i + 1 < coords.length; i += 2) {
+            tmp.lineTo(coords[i], coords[i + 1]);
+          }
+          if (name == 'polygon') tmp.close();
+          return tmp;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   void _buildPathsFromDoc() {
     _paths.clear();
     if (_doc == null) return;
-    final all = _doc!.descendants.whereType<XmlElement>();
-    for (final el in all) {
-      final id = el.getAttribute('id');
-      if (id == null) continue;
+
+    // 1) Add individually ID'd drawables first
+    for (final el in _doc!.descendants.whereType<XmlElement>()) {
       final name = el.name.local.toLowerCase();
-      try {
-        ui.Path? p;
-        if (name == 'path') {
-          final d = el.getAttribute('d');
-          if (d != null) p = parseSvgPathData(d);
-        } else if (name == 'rect') {
-          final x = double.tryParse(el.getAttribute('x') ?? '0') ?? 0;
-          final y = double.tryParse(el.getAttribute('y') ?? '0') ?? 0;
+      if (!_isDrawableName(name)) continue;
+      final id = el.getAttribute('id');
+      if (id != null && id.trim().isNotEmpty) {
+        final p = pathFromElement(el);
+        if (p == null) continue;
+
+        // Skip full-canvas background rects (they cause whole-image selection)
+        if (name == 'rect') {
           final w = double.tryParse(el.getAttribute('width') ?? '0') ?? 0;
           final h = double.tryParse(el.getAttribute('height') ?? '0') ?? 0;
-          final rx = double.tryParse(el.getAttribute('rx') ?? '0') ?? 0;
-          final tmp = ui.Path();
-          if (rx > 0) {
-            tmp.addRRect(RRect.fromRectXY(Rect.fromLTWH(x, y, w, h), rx, rx));
-          } else {
-            tmp.addRect(Rect.fromLTWH(x, y, w, h));
-          }
-          p = tmp;
-        } else if (name == 'circle') {
-          final cx = double.tryParse(el.getAttribute('cx') ?? '0') ?? 0;
-          final cy = double.tryParse(el.getAttribute('cy') ?? '0') ?? 0;
-          final r = double.tryParse(el.getAttribute('r') ?? '0') ?? 0;
-          final tmp = ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
-          p = tmp;
-        } else if (name == 'ellipse') {
-          final cx = double.tryParse(el.getAttribute('cx') ?? '0') ?? 0;
-          final cy = double.tryParse(el.getAttribute('cy') ?? '0') ?? 0;
-          final rx = double.tryParse(el.getAttribute('rx') ?? '0') ?? 0;
-          final ry = double.tryParse(el.getAttribute('ry') ?? '0') ?? 0;
-          final tmp = ui.Path()..addOval(Rect.fromCenter(center: Offset(cx, cy), width: rx * 2, height: ry * 2));
-          p = tmp;
-        } else if (name == 'polygon' || name == 'polyline') {
-          final pts = el.getAttribute('points') ?? '';
-          final coords = pts.split(RegExp(r'[\s,]+')).map((s) => double.tryParse(s) ?? double.nan).toList();
-          if (coords.length >= 4) {
-            final tmp = ui.Path();
-            tmp.moveTo(coords[0], coords[1]);
-            for (int i = 2; i + 1 < coords.length; i += 2) {
-              tmp.lineTo(coords[i], coords[i + 1]);
-            }
-            if (name == 'polygon') tmp.close();
-            p = tmp;
+          final x = double.tryParse(el.getAttribute('x') ?? '0') ?? 0;
+          final y = double.tryParse(el.getAttribute('y') ?? '0') ?? 0;
+          final coversWidth = (_vbWidth > 0) && (w >= _vbWidth * 0.98);
+          final coversHeight = (_vbHeight > 0) && (h >= _vbHeight * 0.98);
+          final positionedAtOrigin = ((x - _vbMinX).abs() <= 1.0 && (y - _vbMinY).abs() <= 1.0);
+          if (coversWidth && coversHeight && positionedAtOrigin) {
+            // treat as background - do NOT register as an interactive path.
+            debugPrint('Skipping background rect id=$id from hit-test registration');
+            continue;
           }
         }
-        if (p != null) _paths[id] = p;
+
+        _paths[id] = p;
+      }
+    }
+
+    // 2) For group ids where children have no ids, create combined path
+    for (final group in _doc!.descendants.whereType<XmlElement>()) {
+      final name = group.name.local.toLowerCase();
+      if (name != 'g') continue;
+      final gid = group.getAttribute('id');
+      if (gid == null || gid.trim().isEmpty) continue;
+
+      final bool anyChildHasId = group
+          .descendants
+          .whereType<XmlElement>()
+          .where((e) => _isDrawableName(e.name.local.toLowerCase()))
+          .any((d) => (d.getAttribute('id') ?? '').trim().isNotEmpty);
+
+      if (anyChildHasId) continue; // keep children individually selectable
+
+      final combined = ui.Path();
+      for (final child in group.descendants.whereType<XmlElement>()) {
+        final childName = child.name.local.toLowerCase();
+        if (!_isDrawableName(childName)) continue;
+        final cp = pathFromElement(child);
+        if (cp != null) combined.addPath(cp, Offset.zero);
+      }
+      try {
+        if (combined.computeMetrics().isNotEmpty) {
+          _paths[gid] = combined;
+        }
       } catch (_) {}
+    }
+
+    // 3) Attach id-less drawables to nearest ancestor group id (useful when group is the selector)
+    for (final el in _doc!.descendants.whereType<XmlElement>()) {
+      final name = el.name.local.toLowerCase();
+      if (!_isDrawableName(name)) continue;
+      final id = el.getAttribute('id');
+      if (id != null && id.trim().isNotEmpty && _paths.containsKey(id)) continue;
+
+      final cp = pathFromElement(el);
+      if (cp == null) continue;
+
+      XmlNode? parent = el.parent;
+      while (parent is XmlElement) {
+        final tag = parent.name.local.toLowerCase();
+        final pid = parent.getAttribute('id');
+        if (tag == 'g' && pid != null && pid.trim().isNotEmpty) {
+          final existing = _paths[pid];
+          if (existing != null) {
+            final merged = ui.Path();
+            merged.addPath(existing, Offset.zero);
+            merged.addPath(cp, Offset.zero);
+            _paths[pid] = merged;
+          } else {
+            _paths[pid] = cp;
+          }
+          break;
+        }
+        parent = parent.parent;
+      }
     }
   }
 
+  // use new component accessors (float 0..1) -> 0..255 ints
   String _colorToHex(Color c) {
-    return '#${c.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+    final ri = ((c.r * 255).round() & 0xFF);
+    final gi = ((c.g * 255).round() & 0xFF);
+    final bi = ((c.b * 255).round() & 0xFF);
+    final ai = ((c.a * 255).round() & 0xFF);
+
+    final r = ri.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final g = gi.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final b = bi.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final a = ai.toRadixString(16).padLeft(2, '0').toUpperCase();
+
+    if (ai == 0xFF) {
+      return '#$r$g$b';
+    }
+    return '#$a$r$g$b';
   }
 
+  /// NEW: only color the tapped element (or that group's drawable children),
+  /// do NOT attempt to find siblings/prefixes/classes. This is exactly one-part coloring.
   void _setPartColor(String id, Color color) {
     if (_doc == null) return;
 
-    XmlElement? elem;
+    final hex = _colorToHex(color);
+
+    XmlElement? target;
     try {
-      elem = _doc!.descendants.whereType<XmlElement>().firstWhere(
-        (e) => e.getAttribute('id') == id,
-      );
+      target = _doc!.descendants.whereType<XmlElement>().firstWhere((e) => e.getAttribute('id') == id);
     } catch (_) {
-      elem = null;
+      target = null;
     }
 
-    if (elem == null) return;
-    elem.setAttribute('fill', _colorToHex(color));
-    if (elem.getAttribute('stroke') == null) elem.setAttribute('stroke', 'none');
+    if (target == null) {
+      return;
+    }
+
+    final tag = target.name.local.toLowerCase();
+
+    // If the tapped element is a group, color its drawable children only.
+    if (tag == 'g') {
+      for (final child in target.descendants.whereType<XmlElement>()) {
+        final childName = child.name.local.toLowerCase();
+        if (!_isDrawableName(childName)) continue;
+        _applyFillToElement(child, hex);
+      }
+    } else {
+      // normal case: color just this element
+      _applyFillToElement(target, hex);
+    }
 
     _svgString = _doc!.toXmlString(pretty: false);
-    setState(() {});
+    if (mounted) {
+      setState(() {
+        // rebuild the path map (in case fills changed or new ids appear)
+        _buildPathsFromDoc();
+      });
+    }
+  }
+
+  void _applyFillToElement(XmlElement elem, String hex) {
+    final style = elem.getAttribute('style');
+    if (style != null && style.trim().isNotEmpty) {
+      final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      var changed = false;
+      for (int i = 0; i < entries.length; i++) {
+        if (entries[i].startsWith('fill:')) {
+          entries[i] = 'fill: $hex';
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) entries.add('fill: $hex');
+      elem.setAttribute('style', entries.join('; '));
+    } else {
+      elem.setAttribute('fill', hex);
+    }
   }
 
   Future<void> _reset() async {
     await _loadSvg();
-    _selectedId = null;
+    if (mounted) {
+      setState(() {
+        _selectedColor = null;
+      });
+    }
   }
 
+  /// Hit-test chooses the *smallest* matching path's id (so specific shapes win).
   String? _hitTest(Offset localPos, Size widgetSize) {
     if (_paths.isEmpty || _vbWidth == 0 || _vbHeight == 0) return null;
 
@@ -180,18 +343,27 @@ class _ColoringPageState extends State<ColoringPage> {
     final ty = -_vbMinY * scale + offsetY;
 
     final Float64List matrix = Float64List.fromList([
-      scale, 0, 0, 0,
-      0, scale, 0, 0,
-      0, 0, 1, 0,
-      tx, ty, 0, 1,
+      scale, 0, 0, 0, //
+      0, scale, 0, 0, //
+      0, 0, 1, 0, //
+      tx, ty, 0, 1, //
     ]);
+
+    String? bestId;
+    double bestArea = double.infinity;
 
     for (final entry in _paths.entries) {
       final transformed = entry.value.transform(matrix);
-      if (transformed.contains(localPos)) return entry.key;
-      if (transformed.getBounds().contains(localPos)) return entry.key;
+      if (transformed.contains(localPos)) {
+        final b = transformed.getBounds();
+        final area = b.width * b.height;
+        if (area < bestArea) {
+          bestArea = area;
+          bestId = entry.key;
+        }
+      }
     }
-    return null;
+    return bestId;
   }
 
   @override
@@ -219,17 +391,19 @@ class _ColoringPageState extends State<ColoringPage> {
                           final pos = details.localPosition;
                           final hit = _hitTest(pos, canvasSize);
                           if (hit != null) {
-                            setState(() {
-                              _selectedId = hit;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Selected: $hit')),
-                            );
+                            if (_selectedColor != null) {
+                              _setPartColor(hit, _selectedColor!);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Select a color first.')),
+                              );
+                            }
                           }
                         },
                         child: Center(
                           child: AspectRatio(
-                            aspectRatio: _vbWidth != 0 && _vbHeight != 0 ? _vbWidth / _vbHeight : 1,
+                            aspectRatio:
+                                _vbWidth != 0 && _vbHeight != 0 ? _vbWidth / _vbHeight : 1,
                             child: SvgPicture.string(
                               _svgString!,
                               fit: BoxFit.contain,
@@ -240,56 +414,80 @@ class _ColoringPageState extends State<ColoringPage> {
                     }),
                   ),
                 ),
-                Expanded(
+                Container(
+                  width: 220,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                  ),
                   child: Column(
                     children: [
                       const SizedBox(height: 8),
-                      const Text('Parts (tap canvas or choose):', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('Palette', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('Selected:'),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: _selectedColor ?? Colors.transparent,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black26),
+                            ),
+                            child: _selectedColor == null
+                                ? const Icon(Icons.color_lens_outlined, size: 18, color: Colors.black26)
+                                : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       Expanded(
-                        child: ListView.builder(
-                          itemCount: _ids.length,
-                          itemBuilder: (context, i) {
-                            final id = _ids[i];
-                            final selected = id == _selectedId;
-                            return ListTile(
-                              title: Text(id),
-                              selected: selected,
-                              onTap: () => setState(() => _selectedId = id),
-                            );
-                          },
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _palette.map((c) {
+                                final selected = c == _selectedColor;
+                                return GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedColor = c;
+                                    });
+                                  },
+                                  child: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: c,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: selected ? Colors.black : Colors.black12,
+                                        width: selected ? 3 : 1,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
                         ),
                       ),
-                      const Divider(),
-                      const Text('Palette', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _palette.map((c) {
-                            return GestureDetector(
-                              onTap: () {
-                                final id = _selectedId;
-                                if (id != null) {
-                                  _setPartColor(id, c);
-                                } else {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Select a part first (tap or pick from list)')),
-                                  );
-                                }
-                              },
-                              child: Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  color: c,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedColor = null;
+                          });
+                        },
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Clear Selection'),
                       ),
                       const SizedBox(height: 12),
                     ],
