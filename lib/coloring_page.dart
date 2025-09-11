@@ -39,6 +39,9 @@ class _ColoringPageState extends State<ColoringPage> {
 
   Color? _selectedColor;
 
+  // History stack for undo
+  final List<String> _history = [];
+
   @override
   void initState() {
     super.initState();
@@ -53,7 +56,7 @@ class _ColoringPageState extends State<ColoringPage> {
       _parseViewBox();
       _buildPathsFromDoc();
     } catch (_) {
-      // fallback simple svg for tests
+      // fallback simple svg
       _svgString =
           "<svg viewBox='0 0 100 100'><rect id='rect1' x='10' y='10' width='80' height='80' fill='white' stroke='black'/></svg>";
       _doc = XmlDocument.parse(_svgString!);
@@ -70,8 +73,10 @@ class _ColoringPageState extends State<ColoringPage> {
     final root = _doc!.rootElement;
     final vb = root.getAttribute('viewBox');
     if (vb != null) {
-      final parts =
-          vb.split(RegExp(r'[\s,]+')).map((s) => double.tryParse(s) ?? 0.0).toList();
+      final parts = vb
+          .split(RegExp(r'[\s,]+'))
+          .map((s) => double.tryParse(s) ?? 0.0)
+          .toList();
       if (parts.length >= 4) {
         _vbMinX = parts[0];
         _vbMinY = parts[1];
@@ -118,14 +123,16 @@ class _ColoringPageState extends State<ColoringPage> {
         final cx = double.tryParse(el.getAttribute('cx') ?? '0') ?? 0;
         final cy = double.tryParse(el.getAttribute('cy') ?? '0') ?? 0;
         final r = double.tryParse(el.getAttribute('r') ?? '0') ?? 0;
-        return ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+        return ui.Path()
+          ..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
       } else if (name == 'ellipse') {
         final cx = double.tryParse(el.getAttribute('cx') ?? '0') ?? 0;
         final cy = double.tryParse(el.getAttribute('cy') ?? '0') ?? 0;
         final rx = double.tryParse(el.getAttribute('rx') ?? '0') ?? 0;
         final ry = double.tryParse(el.getAttribute('ry') ?? '0') ?? 0;
         return ui.Path()
-          ..addOval(Rect.fromCenter(center: Offset(cx, cy), width: rx * 2, height: ry * 2));
+          ..addOval(Rect.fromCenter(
+              center: Offset(cx, cy), width: rx * 2, height: ry * 2));
       } else if (name == 'polygon' || name == 'polyline') {
         final pts = el.getAttribute('points') ?? '';
         final coords = pts
@@ -152,7 +159,6 @@ class _ColoringPageState extends State<ColoringPage> {
     _paths.clear();
     if (_doc == null) return;
 
-    // 1) Add individually ID'd drawables first
     for (final el in _doc!.descendants.whereType<XmlElement>()) {
       final name = el.name.local.toLowerCase();
       if (!_isDrawableName(name)) continue;
@@ -160,88 +166,11 @@ class _ColoringPageState extends State<ColoringPage> {
       if (id != null && id.trim().isNotEmpty) {
         final p = pathFromElement(el);
         if (p == null) continue;
-
-        // Skip full-canvas background rects (they cause whole-image selection)
-        if (name == 'rect') {
-          final w = double.tryParse(el.getAttribute('width') ?? '0') ?? 0;
-          final h = double.tryParse(el.getAttribute('height') ?? '0') ?? 0;
-          final x = double.tryParse(el.getAttribute('x') ?? '0') ?? 0;
-          final y = double.tryParse(el.getAttribute('y') ?? '0') ?? 0;
-          final coversWidth = (_vbWidth > 0) && (w >= _vbWidth * 0.98);
-          final coversHeight = (_vbHeight > 0) && (h >= _vbHeight * 0.98);
-          final positionedAtOrigin = ((x - _vbMinX).abs() <= 1.0 && (y - _vbMinY).abs() <= 1.0);
-          if (coversWidth && coversHeight && positionedAtOrigin) {
-            // treat as background - do NOT register as an interactive path.
-            debugPrint('Skipping background rect id=$id from hit-test registration');
-            continue;
-          }
-        }
-
         _paths[id] = p;
-      }
-    }
-
-    // 2) For group ids where children have no ids, create combined path
-    for (final group in _doc!.descendants.whereType<XmlElement>()) {
-      final name = group.name.local.toLowerCase();
-      if (name != 'g') continue;
-      final gid = group.getAttribute('id');
-      if (gid == null || gid.trim().isEmpty) continue;
-
-      final bool anyChildHasId = group
-          .descendants
-          .whereType<XmlElement>()
-          .where((e) => _isDrawableName(e.name.local.toLowerCase()))
-          .any((d) => (d.getAttribute('id') ?? '').trim().isNotEmpty);
-
-      if (anyChildHasId) continue; // keep children individually selectable
-
-      final combined = ui.Path();
-      for (final child in group.descendants.whereType<XmlElement>()) {
-        final childName = child.name.local.toLowerCase();
-        if (!_isDrawableName(childName)) continue;
-        final cp = pathFromElement(child);
-        if (cp != null) combined.addPath(cp, Offset.zero);
-      }
-      try {
-        if (combined.computeMetrics().isNotEmpty) {
-          _paths[gid] = combined;
-        }
-      } catch (_) {}
-    }
-
-    // 3) Attach id-less drawables to nearest ancestor group id (useful when group is the selector)
-    for (final el in _doc!.descendants.whereType<XmlElement>()) {
-      final name = el.name.local.toLowerCase();
-      if (!_isDrawableName(name)) continue;
-      final id = el.getAttribute('id');
-      if (id != null && id.trim().isNotEmpty && _paths.containsKey(id)) continue;
-
-      final cp = pathFromElement(el);
-      if (cp == null) continue;
-
-      XmlNode? parent = el.parent;
-      while (parent is XmlElement) {
-        final tag = parent.name.local.toLowerCase();
-        final pid = parent.getAttribute('id');
-        if (tag == 'g' && pid != null && pid.trim().isNotEmpty) {
-          final existing = _paths[pid];
-          if (existing != null) {
-            final merged = ui.Path();
-            merged.addPath(existing, Offset.zero);
-            merged.addPath(cp, Offset.zero);
-            _paths[pid] = merged;
-          } else {
-            _paths[pid] = cp;
-          }
-          break;
-        }
-        parent = parent.parent;
       }
     }
   }
 
-  // use new component accessors (float 0..1) -> 0..255 ints
   String _colorToHex(Color c) {
     final ri = ((c.r * 255).round() & 0xFF);
     final gi = ((c.g * 255).round() & 0xFF);
@@ -259,42 +188,30 @@ class _ColoringPageState extends State<ColoringPage> {
     return '#$a$r$g$b';
   }
 
-  /// NEW: only color the tapped element (or that group's drawable children),
-  /// do NOT attempt to find siblings/prefixes/classes. This is exactly one-part coloring.
   void _setPartColor(String id, Color color) {
     if (_doc == null) return;
+
+    // Save current state for undo
+    _history.add(_doc!.toXmlString(pretty: false));
 
     final hex = _colorToHex(color);
 
     XmlElement? target;
     try {
-      target = _doc!.descendants.whereType<XmlElement>().firstWhere((e) => e.getAttribute('id') == id);
+      target = _doc!.descendants
+          .whereType<XmlElement>()
+          .firstWhere((e) => e.getAttribute('id') == id);
     } catch (_) {
       target = null;
     }
 
-    if (target == null) {
-      return;
-    }
+    if (target == null) return;
 
-    final tag = target.name.local.toLowerCase();
-
-    // If the tapped element is a group, color its drawable children only.
-    if (tag == 'g') {
-      for (final child in target.descendants.whereType<XmlElement>()) {
-        final childName = child.name.local.toLowerCase();
-        if (!_isDrawableName(childName)) continue;
-        _applyFillToElement(child, hex);
-      }
-    } else {
-      // normal case: color just this element
-      _applyFillToElement(target, hex);
-    }
+    _applyFillToElement(target, hex);
 
     _svgString = _doc!.toXmlString(pretty: false);
     if (mounted) {
       setState(() {
-        // rebuild the path map (in case fills changed or new ids appear)
         _buildPathsFromDoc();
       });
     }
@@ -303,7 +220,11 @@ class _ColoringPageState extends State<ColoringPage> {
   void _applyFillToElement(XmlElement elem, String hex) {
     final style = elem.getAttribute('style');
     if (style != null && style.trim().isNotEmpty) {
-      final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      final entries = style
+          .split(';')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
       var changed = false;
       for (int i = 0; i < entries.length; i++) {
         if (entries[i].startsWith('fill:')) {
@@ -324,11 +245,11 @@ class _ColoringPageState extends State<ColoringPage> {
     if (mounted) {
       setState(() {
         _selectedColor = null;
+        _history.clear();
       });
     }
   }
 
-  /// Hit-test chooses the *smallest* matching path's id (so specific shapes win).
   String? _hitTest(Offset localPos, Size widgetSize) {
     if (_paths.isEmpty || _vbWidth == 0 || _vbHeight == 0) return null;
 
@@ -372,19 +293,38 @@ class _ColoringPageState extends State<ColoringPage> {
       appBar: AppBar(
         title: const Text('SVG Coloring'),
         actions: [
+          IconButton(
+            onPressed: () {
+              if (_history.isNotEmpty) {
+                final prev = _history.removeLast();
+                _svgString = prev;
+                _doc = XmlDocument.parse(prev);
+                setState(() {
+                  _buildPathsFromDoc();
+                });
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Nothing to undo')),
+                );
+              }
+            },
+            icon: const Icon(Icons.undo),
+          ),
           IconButton(onPressed: _reset, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: _svgString == null
           ? const Center(child: CircularProgressIndicator())
-          : Row(
+          : Column(
               children: [
+                // Image area
                 Expanded(
-                  flex: 3,
+                  flex: 6,
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(8),
                     child: LayoutBuilder(builder: (context, constraints) {
-                      final canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+                      final canvasSize =
+                          Size(constraints.maxWidth, constraints.maxHeight);
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTapDown: (details) {
@@ -395,15 +335,17 @@ class _ColoringPageState extends State<ColoringPage> {
                               _setPartColor(hit, _selectedColor!);
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Select a color first.')),
+                                const SnackBar(
+                                    content: Text('Select a color first.')),
                               );
                             }
                           }
                         },
                         child: Center(
                           child: AspectRatio(
-                            aspectRatio:
-                                _vbWidth != 0 && _vbHeight != 0 ? _vbWidth / _vbHeight : 1,
+                            aspectRatio: _vbWidth != 0 && _vbHeight != 0
+                                ? _vbWidth / _vbHeight
+                                : 1,
                             child: SvgPicture.string(
                               _svgString!,
                               fit: BoxFit.contain,
@@ -414,72 +356,48 @@ class _ColoringPageState extends State<ColoringPage> {
                     }),
                   ),
                 ),
+
+                // Palette area at bottom
                 Container(
-                  width: 220,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-                  ),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                  color: Colors.white,
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      const Text("Palette",
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
-                      const Text('Palette', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        alignment: WrapAlignment.center,
+                        children: _palette.map((c) {
+                          final selected = c == _selectedColor;
+                          return GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _selectedColor = c;
+                              });
+                            },
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: c,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selected
+                                      ? Colors.black
+                                      : Colors.black26,
+                                  width: selected ? 3 : 1,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                       const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('Selected:'),
-                          const SizedBox(width: 8),
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: _selectedColor ?? Colors.transparent,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.black26),
-                            ),
-                            child: _selectedColor == null
-                                ? const Icon(Icons.color_lens_outlined, size: 18, color: Colors.black26)
-                                : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _palette.map((c) {
-                                final selected = c == _selectedColor;
-                                return GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedColor = c;
-                                    });
-                                  },
-                                  child: Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: c,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: selected ? Colors.black : Colors.black12,
-                                        width: selected ? 3 : 1,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                       ElevatedButton.icon(
                         onPressed: () {
                           setState(() {
@@ -487,9 +405,8 @@ class _ColoringPageState extends State<ColoringPage> {
                           });
                         },
                         icon: const Icon(Icons.clear),
-                        label: const Text('Clear Selection'),
+                        label: const Text("Clear Selection"),
                       ),
-                      const SizedBox(height: 12),
                     ],
                   ),
                 ),
