@@ -1,7 +1,9 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
-import 'pages/colouring_page.dart';
+import 'auth/phone_entry.dart'; 
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -10,10 +12,10 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Coloring Auth Demo',
       debugShowCheckedModeBanner: false,
-      title: 'SVG Coloring',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: const ColoringPage(),
+      theme: ThemeData(primarySwatch: Colors.deepPurple),
+      home: const PhoneEntryScreen(),
     );
   }
 }
