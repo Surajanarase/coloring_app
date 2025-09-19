@@ -1,7 +1,9 @@
 // lib/auth/otp_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../pages/colouring_page.dart';
+//import '../pages/colouring_page.dart';
+import '../pages/home_page.dart';
+
 
 class OtpScreen extends StatefulWidget {
   final String phoneNumber;
@@ -64,7 +66,7 @@ class _OtpScreenState extends State<OtpScreen> {
 
     if (otp == '1234') {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const ColoringPage()),
+        MaterialPageRoute(builder: (_) => const HomePage()),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
