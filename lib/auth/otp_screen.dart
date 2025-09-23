@@ -1,9 +1,7 @@
 // lib/auth/otp_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
-//import '../pages/colouring_page.dart';
-import '../pages/home_page.dart';
-
+import '../pages/dashboard_page.dart';
 
 class OtpScreen extends StatefulWidget {
   final String phoneNumber;
@@ -18,7 +16,6 @@ class _OtpScreenState extends State<OtpScreen> {
   final TextEditingController _otpCtrl = TextEditingController();
   bool _verifying = false;
 
-  // resend timer
   static const int _resendDelay = 30;
   Timer? _timer;
   int _secondsLeft = 0;
@@ -59,16 +56,20 @@ class _OtpScreenState extends State<OtpScreen> {
     final otp = _otpCtrl.text.trim();
     setState(() => _verifying = true);
 
-    // simulate verification
+    // simulate verification delay
     await Future.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
     setState(() => _verifying = false);
 
     if (otp == '1234') {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomePage()),
+      // Navigate to Dashboard (replace current route so user can't press back to OTP)
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const DashboardPage()),
+        (route) => false,
       );
     } else {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Invalid code — demo OTP is 1234')),
       );
@@ -77,6 +78,7 @@ class _OtpScreenState extends State<OtpScreen> {
 
   void _resendOtp() {
     if (_secondsLeft > 0) return;
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('OTP resent (demo)')));
     _startResendCountdown();
@@ -176,8 +178,8 @@ class _OtpScreenState extends State<OtpScreen> {
                         : const Text(
                             'Verify',
                             style: TextStyle(
-                              fontWeight: FontWeight.bold, // 
-                              fontSize: 18,                 // 
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
                               letterSpacing: 0.5,
                               color: Colors.white,
                             ),

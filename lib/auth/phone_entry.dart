@@ -14,7 +14,6 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen>
   final TextEditingController _phoneCtrl = TextEditingController(text: '+91');
   bool _sending = false;
 
-  // subtle entry animation
   late final AnimationController _animController;
   late final Animation<double> _cardElevation;
 
@@ -42,13 +41,11 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen>
     final phone = _phoneCtrl.text.trim();
     setState(() => _sending = true);
 
-    // simulate network call (replace with real provider)
     await Future.delayed(const Duration(milliseconds: 900));
 
     if (!mounted) return;
     setState(() => _sending = false);
 
-    // navigate to OTP screen
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => OtpScreen(phoneNumber: phone)),
     );
@@ -67,104 +64,116 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFFBF6FA),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.black87,
-        title: const Text('Sign in (Phone)', style: TextStyle(fontWeight: FontWeight.w600)),
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: AnimatedBuilder(
-            animation: _animController,
-            builder: (_, __) => Material(
-              elevation: _cardElevation.value,
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: (760.0
-                        .clamp(320.0, MediaQuery.of(context).size.width * 0.95))
-                    .toDouble(),
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Welcome back',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Enter your mobile number to receive a one-time code.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
-                    ),
-                    const SizedBox(height: 18),
-                    Form(
-                      key: _formKey,
-                      child: TextFormField(
-                        controller: _phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          hintText: '+919876543210',
-                          labelText: 'Phone number',
-                          prefixIcon: const Icon(Icons.phone_iphone_rounded),
-                          filled: true,
-                          fillColor: const Color(0xFFF8F6FB),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          contentPadding: const EdgeInsets.symmetric(
-                              vertical: 18, horizontal: 14),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: AnimatedBuilder(
+              animation: _animController,
+              builder: (_, __) => Material(
+                elevation: _cardElevation.value,
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  width: (760.0
+                          .clamp(320.0, MediaQuery.of(context).size.width * 0.95))
+                      .toDouble(),
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 96,
+                        height: 96,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: const [
+                            BoxShadow(color: Color(0x22000000), blurRadius: 12)
+                          ],
                         ),
-                        validator: _phoneValidator,
+                        child: const Center(child: Text('🎨', style: TextStyle(fontSize: 40))),
                       ),
-                    ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: 220,
-                      height: 46,
-                      child: ElevatedButton(
-                        onPressed: _sending ? null : _sendOtp,
-                        style: ElevatedButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24)),
-                          elevation: 2,
-                          backgroundColor: Colors.deepPurple,
+                      const SizedBox(height: 12),
+                      const Text(
+                        'ColorFun',
+                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Creative coloring for kids',
+                        style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+                      ),
+                      const SizedBox(height: 18),
+                      Form(
+                        key: _formKey,
+                        child: TextFormField(
+                          controller: _phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            hintText: '+919876543210',
+                            labelText: 'Phone number',
+                            prefixIcon: const Icon(Icons.phone_iphone_rounded),
+                            filled: true,
+                            fillColor: const Color(0xFFF8F6FB),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            contentPadding: const EdgeInsets.symmetric(
+                                vertical: 18, horizontal: 14),
+                          ),
+                          validator: _phoneValidator,
                         ),
-                        child: _sending
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2.2,
-                                ))
-                            : const Text(
-                                'Send OTP',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold, // 
-                                  fontSize: 18,                 // 
-                                  letterSpacing: 0.5,
-                                  color: Colors.white,
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: _sending ? null : _sendOtp,
+                          style: ElevatedButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 2,
+                            backgroundColor: const Color(0xFF667EEA),
+                          ),
+                          child: _sending
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.2,
+                                  ))
+                              : const Text(
+                                  'Send OTP',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                  ),
                                 ),
-                              ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Demo OTP = 1234.',
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 6),
-                  ],
+                      const SizedBox(height: 12),
+                      Text(
+                        'Demo OTP = 1234.',
+                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                  ),
                 ),
               ),
             ),
