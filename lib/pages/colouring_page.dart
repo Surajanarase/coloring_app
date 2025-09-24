@@ -1,5 +1,6 @@
 // lib/pages/colouring_page.dart
 import 'package:flutter/material.dart';
+import 'package:xml/xml.dart';
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
@@ -38,6 +39,9 @@ class _ColoringPageState extends State<ColoringPage> {
 
   final GlobalKey _containerKey = GlobalKey();
 
+  // Store original fill attributes so we can restore when clearing/erasing
+  final Map<String, String> _originalFills = {};
+
   @override
   void initState() {
     super.initState();
@@ -49,20 +53,26 @@ class _ColoringPageState extends State<ColoringPage> {
     await _svgService.load();
 
     if (_svgService.doc != null) {
-      // Build paths and hit-test helper
+      // Build paths and hit-test helper (doc is non-null here)
       _pathService.buildPathsFromDoc(_svgService.doc!);
 
       _hitTestService = HitTestService(
-        paths: _pathService.paths, // Map<String, Path>
+        paths: _pathService.paths,
         viewBox: _svgService.viewBox,
       );
 
       final imageId = widget.assetPath;
       final title = widget.title ?? imageId.split('/').last;
-      final pathIds = _pathService.paths.keys.toList().cast<String>();
+      final pathIds = _pathService.paths.keys.map((k) => k.toString()).toList();
 
       await _db.upsertImage(imageId, title, pathIds.length);
       await _db.insertPathsForImage(imageId, pathIds);
+
+      // Store original fills for each path element (so we can restore later)
+      for (final pid in pathIds) {
+        final original = _getOriginalFillForElement(pid);
+        _originalFills[pid] = original;
+      }
 
       // Restore previously colored paths
       final coloredRows = await _db.getColoredPathsForImage(imageId);
@@ -86,11 +96,44 @@ class _ColoringPageState extends State<ColoringPage> {
     setState(() => _loading = false);
   }
 
+  /// Returns the original fill for element id (reads 'fill' attribute or style 'fill: ...').
+  /// If nothing found, returns 'none'.
+  String _getOriginalFillForElement(String id) {
+    final doc = _svgService.doc;
+    if (doc == null) return 'none';
+
+    try {
+      // Use findAllElements to iterate elements; prefer explicit fill attribute then style:fill
+      for (final XmlElement elem in doc.findAllElements('*')) {
+        final attrId = elem.getAttribute('id');
+        if (attrId == id) {
+          final attrFill = elem.getAttribute('fill');
+          if (attrFill != null && attrFill.trim().isNotEmpty) {
+            return attrFill;
+          }
+          final style = elem.getAttribute('style');
+          if (style != null && style.trim().isNotEmpty) {
+            final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty);
+            for (final entry in entries) {
+              if (entry.startsWith('fill:')) {
+                return entry.substring('fill:'.length).trim();
+              }
+            }
+          }
+          return 'none';
+        }
+      }
+    } catch (_) {
+      // ignore and fallback to 'none'
+    }
+    return 'none';
+  }
+
   Offset _computeLocalOffset(RenderBox containerBox, Offset globalPosition) {
     return containerBox.globalToLocal(globalPosition);
   }
 
-  void _onTapAt(Offset localPos, Size widgetSize) async {
+  Future<void> _onTapAt(Offset localPos, Size widgetSize) async {
     if (_hitTestService == null) return;
     final hitId = _hitTestService!.hitTest(localPos, widgetSize);
     if (hitId == null) return;
@@ -104,29 +147,25 @@ class _ColoringPageState extends State<ColoringPage> {
         return;
       }
 
-      final colorHex = _colorServiceToHex(_selectedColor!);
-
+      final colorHex = _colorService.colorToHex(_selectedColor!);
       _svgService.applyFillToElementById(hitId, colorHex);
       await _db.markPathColored(hitId, colorHex);
     } else if (_currentTool == 'eraser') {
-      _svgService.applyFillToElementById(hitId, 'none');
+      // restore the original fill instead of setting 'none'
+      final orig = _originalFills[hitId] ?? 'none';
+      _svgService.applyFillToElementById(hitId, orig);
       await _db.markPathUncolored(hitId);
     }
 
     // Rebuild paths & hit-test after changes
-    _pathService.buildPathsFromDoc(_svgService.doc!);
-    _hitTestService = HitTestService(
-      paths: _pathService.paths,
-      viewBox: _svgService.viewBox,
-    );
+    if (_svgService.doc != null) {
+      _pathService.buildPathsFromDoc(_svgService.doc!);
+      _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+    }
 
     if (!mounted) return;
     setState(() {});
   }
-
-  // wrapper for color->hex, left separate to make analyzer happy and keep intent clear
-  String _colorServiceToHex(Color color) => _colorService.colorToHex(color);
-
 
   void _onSelectColor(Color color) {
     setState(() {
@@ -138,17 +177,16 @@ class _ColoringPageState extends State<ColoringPage> {
   Future<void> _clearCanvasAll() async {
     if (_svgService.doc == null) return;
 
-    final allIds = _pathService.paths.keys.toList().cast<String>();
+    final allIds = _pathService.paths.keys.map((k) => k.toString()).toList();
     for (final pid in allIds) {
-      _svgService.applyFillToElementById(pid, 'none');
+      final orig = _originalFills[pid] ?? 'none';
+      _svgService.applyFillToElementById(pid, orig);
       await _db.markPathUncolored(pid);
     }
 
+    // Rebuild & refresh
     _pathService.buildPathsFromDoc(_svgService.doc!);
-    _hitTestService = HitTestService(
-      paths: _pathService.paths,
-      viewBox: _svgService.viewBox,
-    );
+    _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
 
     if (!mounted) return;
     setState(() {});
@@ -158,8 +196,6 @@ class _ColoringPageState extends State<ColoringPage> {
   }
 
   Future<void> _saveProgress() async {
-    // If you want to record a "saved at" timestamp, add a DB call here, e.g.:
-    // await _db.setImageSavedAt(widget.assetPath, DateTime.now());
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Your coloring has been saved! 🎨')),
@@ -173,7 +209,6 @@ class _ColoringPageState extends State<ColoringPage> {
     );
   }
 
-  // Local helper to build pill AppBar buttons
   Widget _appBarPill({
     required VoidCallback onPressed,
     required Color color,
@@ -201,7 +236,7 @@ class _ColoringPageState extends State<ColoringPage> {
   @override
   Widget build(BuildContext context) {
     final appBar = AppBar(
-      // Back pill (blue) as leading
+      // Back pill (blue)
       leadingWidth: 120,
       leading: _appBarPill(
         onPressed: () => Navigator.of(context).pop(),
@@ -261,7 +296,6 @@ class _ColoringPageState extends State<ColoringPage> {
                   ),
                   child: Column(
                     children: [
-                      // Visual top spacing / title row
                       Padding(
                         padding: const EdgeInsets.all(8.0),
                         child: Row(
@@ -302,7 +336,7 @@ class _ColoringPageState extends State<ColoringPage> {
 
                       const SizedBox(height: 8),
 
-                      // Tools row: Color / Eraser toggle + Clear button
+                      // Tools row
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         child: Row(
