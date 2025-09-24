@@ -207,7 +207,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen>
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                'Demo OTP = 123456',
+                                'Demo OTP = 1234',
                                 style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
                               ),
                             ],
