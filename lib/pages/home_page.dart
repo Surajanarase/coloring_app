@@ -5,25 +5,24 @@ import 'colouring_page.dart';
 import 'dashboard_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  // username passed from login flow (REQUIRED)
+  final String username;
+  const HomePage({super.key, required this.username});
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  // Cover overlay: show on each app start, hide after _coverDuration or on tap.
   bool _showCover = true;
   static const Duration _coverDuration = Duration(seconds: 3);
   static const Duration _fadeDuration = Duration(milliseconds: 450);
   Timer? _timer;
   final String _coverAsset = 'assets/images/rhd_booklet_cover.png';
 
-  // PageView controller for slide sequence
   final PageController _pageController = PageController(initialPage: 0);
   int _pageIndex = 0;
 
-  // Slide contents (you can edit the text)
   final List<_SlideData> _slides = [
     _SlideData(
       title: 'Understanding Rheumatic Heart Disease',
@@ -77,7 +76,6 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // start timer to hide cover after 3 seconds
     _timer = Timer(_coverDuration, () {
       if (!mounted) return;
       setState(() => _showCover = false);
@@ -98,11 +96,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   void openColoring() {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ColoringPage()));
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ColoringPage(
+        assetPath: 'assets/colouring_svg.svg',
+        title: 'Coloring',
+        username: widget.username,
+      ),
+    ));
   }
 
   void openDashboard() {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DashboardPage()));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DashboardPage(username: widget.username)));
   }
 
   void _goToPage(int idx) {
@@ -126,7 +130,6 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Big card with icon + title + content
             Card(
               color: slide.bgColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -171,7 +174,6 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 10),
                       const Divider(),
                       const SizedBox(height: 12),
-                      // Big CTAs for last slide
                       SizedBox(
                         width: double.infinity,
                         height: 56,
@@ -201,7 +203,6 @@ class _HomePageState extends State<HomePage> {
 
             const SizedBox(height: 20),
 
-            // small "progress" / instruction under the card
             Center(
               child: Text(
                 isLast ? 'Tap a button to start or swipe back' : 'Swipe → to continue',
@@ -218,7 +219,6 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // MAIN: slides scaffold
         Scaffold(
           appBar: AppBar(
             title: const Text('Rheumatic Heart Disease'),
@@ -229,7 +229,6 @@ class _HomePageState extends State<HomePage> {
           body: SafeArea(
             child: Column(
               children: [
-                // PageView main area
                 Expanded(
                   child: PageView.builder(
                     controller: _pageController,
@@ -246,7 +245,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
 
-                // Bottom controls: Back / Dots / Next
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                   child: Row(
@@ -289,15 +287,11 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
 
-        // COVER overlay (3 seconds, tap to dismiss early). Over entire screen.
         if (_showCover)
           Positioned.fill(
             child: AnimatedOpacity(
               opacity: _showCover ? 1.0 : 0.0,
               duration: _fadeDuration,
-              onEnd: () {
-                // no-op; state already updated by timer or tap
-              },
               child: GestureDetector(
                 onTap: _dismissCoverEarly,
                 child: AbsorbPointer(
@@ -344,7 +338,6 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// small helper class for slide content
 class _SlideData {
   final String title;
   final List<String> lines;

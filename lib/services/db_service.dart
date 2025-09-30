@@ -1,3 +1,4 @@
+// lib/services/db_service.dart
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 
@@ -21,6 +22,15 @@ class DbService {
       path,
       version: 1,
       onCreate: (db, version) async {
+        // users table for username/password auth
+        await db.execute('''
+          CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT
+          )
+        ''');
+
         await db.execute('''
           CREATE TABLE images (
             id TEXT PRIMARY KEY,
@@ -28,6 +38,7 @@ class DbService {
             total_paths INTEGER
           )
         ''');
+
         await db.execute('''
           CREATE TABLE paths (
             id TEXT PRIMARY KEY,
@@ -40,6 +51,53 @@ class DbService {
       },
     );
   }
+
+  // -----------------------
+  // User methods (auth)
+  // -----------------------
+
+  /// Create a new user (returns "ok" when created, or an error string)
+  Future<String> createUser(String username, String password) async {
+    final database = await db;
+    try {
+      await database.insert(
+        'users',
+        {'username': username, 'password': password},
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+      return 'ok';
+    } on DatabaseException catch (e) {
+      if (e.isUniqueConstraintError()) {
+        return 'exists';
+      }
+      return 'db_error';
+    } catch (_) {
+      return 'unknown_error';
+    }
+  }
+
+  /// Authenticate user (returns true if credentials match)
+  Future<bool> authenticateUser(String username, String password) async {
+    final database = await db;
+    final rows = await database.query(
+      'users',
+      columns: ['id'],
+      where: 'username = ? AND password = ?',
+      whereArgs: [username, password],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Debug: list all users
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    final database = await db;
+    return database.query('users');
+  }
+
+  // -----------------------
+  // Coloring app methods
+  // -----------------------
 
   Future<void> upsertImage(String id, String title, int totalPaths) async {
     final database = await db;
@@ -113,18 +171,14 @@ class DbService {
     return rows;
   }
 
-  /// NEW: get all colored paths with their color
-  Future<List<Map<String, dynamic>>> getColoredPathsForImage(
-      String imageId) async {
+  Future<List<Map<String, dynamic>>> getColoredPathsForImage(String imageId) async {
     final database = await db;
-    final rows = await database.rawQuery(
+    return await database.rawQuery(
       'SELECT id, color FROM paths WHERE image_id = ? AND is_colored = 1',
       [imageId],
     );
-    return rows;
   }
 
-    /// Reset all path colors for an image (set to uncolored)
   Future<void> resetImageProgress(String imageId) async {
     final database = await db;
     await database.update(
@@ -134,5 +188,4 @@ class DbService {
       whereArgs: [imageId],
     );
   }
-
 }

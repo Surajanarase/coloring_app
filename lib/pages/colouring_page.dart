@@ -12,11 +12,13 @@ import 'dashboard_page.dart';
 class ColoringPage extends StatefulWidget {
   final String assetPath;
   final String? title;
+  final String username; // REQUIRED now
 
   const ColoringPage({
     super.key,
-    this.assetPath = 'assets/colouring_svg.svg',
+    required this.assetPath,
     this.title,
+    required this.username,
   });
 
   @override
@@ -53,7 +55,6 @@ class _ColoringPageState extends State<ColoringPage> {
     await _svgService.load();
 
     if (_svgService.doc != null) {
-      // Build paths and hit-test helper (doc is non-null here)
       _pathService.buildPathsFromDoc(_svgService.doc!);
 
       _hitTestService = HitTestService(
@@ -68,13 +69,11 @@ class _ColoringPageState extends State<ColoringPage> {
       await _db.upsertImage(imageId, title, pathIds.length);
       await _db.insertPathsForImage(imageId, pathIds);
 
-      // Store original fills for each path element (so we can restore later)
       for (final pid in pathIds) {
         final original = _getOriginalFillForElement(pid);
         _originalFills[pid] = original;
       }
 
-      // Restore previously colored paths
       final coloredRows = await _db.getColoredPathsForImage(imageId);
       for (final row in coloredRows) {
         final pid = row['id'] as String;
@@ -84,7 +83,6 @@ class _ColoringPageState extends State<ColoringPage> {
         }
       }
 
-      // Rebuild after applying fills
       _pathService.buildPathsFromDoc(_svgService.doc!);
       _hitTestService = HitTestService(
         paths: _pathService.paths,
@@ -96,14 +94,11 @@ class _ColoringPageState extends State<ColoringPage> {
     setState(() => _loading = false);
   }
 
-  /// Returns the original fill for element id (reads 'fill' attribute or style 'fill: ...').
-  /// If nothing found, returns 'none'.
   String _getOriginalFillForElement(String id) {
     final doc = _svgService.doc;
     if (doc == null) return 'none';
 
     try {
-      // Use findAllElements to iterate elements; prefer explicit fill attribute then style:fill
       for (final XmlElement elem in doc.findAllElements('*')) {
         final attrId = elem.getAttribute('id');
         if (attrId == id) {
@@ -124,7 +119,7 @@ class _ColoringPageState extends State<ColoringPage> {
         }
       }
     } catch (_) {
-      // ignore and fallback to 'none'
+      // ignore
     }
     return 'none';
   }
@@ -151,13 +146,11 @@ class _ColoringPageState extends State<ColoringPage> {
       _svgService.applyFillToElementById(hitId, colorHex);
       await _db.markPathColored(hitId, colorHex);
     } else if (_currentTool == 'eraser') {
-      // restore the original fill instead of setting 'none'
       final orig = _originalFills[hitId] ?? 'none';
       _svgService.applyFillToElementById(hitId, orig);
       await _db.markPathUncolored(hitId);
     }
 
-    // Rebuild paths & hit-test after changes
     if (_svgService.doc != null) {
       _pathService.buildPathsFromDoc(_svgService.doc!);
       _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
@@ -184,7 +177,6 @@ class _ColoringPageState extends State<ColoringPage> {
       await _db.markPathUncolored(pid);
     }
 
-    // Rebuild & refresh
     _pathService.buildPathsFromDoc(_svgService.doc!);
     _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
 
@@ -200,12 +192,12 @@ class _ColoringPageState extends State<ColoringPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Your coloring has been saved! 🎨')),
     );
-    Navigator.of(context).pop(); // return to Dashboard (Dashboard will refresh)
+    Navigator.of(context).pop();
   }
 
   void _openDashboardShortcut() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const DashboardPage()),
+      MaterialPageRoute(builder: (_) => DashboardPage(username: widget.username)),
     );
   }
 
@@ -236,7 +228,6 @@ class _ColoringPageState extends State<ColoringPage> {
   @override
   Widget build(BuildContext context) {
     final appBar = AppBar(
-      // Back pill (blue)
       leadingWidth: 120,
       leading: _appBarPill(
         onPressed: () => Navigator.of(context).pop(),

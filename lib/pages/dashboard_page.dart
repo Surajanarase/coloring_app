@@ -1,6 +1,5 @@
 // lib/pages/dashboard_page.dart
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -8,10 +7,12 @@ import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
 import 'colouring_page.dart';
-import '../auth/phone_entry.dart';
+import '../auth/login_screen.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final String username;
+
+  const DashboardPage({super.key, required this.username});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -44,7 +45,6 @@ This app is for educational/demo purposes only.
   }
 
   Future<void> _init() async {
-    // Helpful debug output (not visible to users) and seed DB
     await _debugPrintAssetManifest();
     await discoverAndSeedSvgs();
     await _loadRows();
@@ -55,9 +55,7 @@ This app is for educational/demo purposes only.
     try {
       final r = await _db.getDashboardRows();
       if (!mounted) return;
-      setState(() {
-        _rows = r;
-      });
+      setState(() => _rows = r);
 
       final totalProgress = _rows.fold<int>(0, (sum, row) {
         final total = (row['total_paths'] as int?) ?? 0;
@@ -66,36 +64,24 @@ This app is for educational/demo purposes only.
         return sum + percent;
       });
 
-      if (_rows.isNotEmpty) {
-        _overall = (totalProgress / _rows.length).round();
-      } else {
-        _overall = 0;
-      }
+      _overall = _rows.isNotEmpty ? (totalProgress / _rows.length).round() : 0;
     } catch (e, st) {
       debugPrint('Error loading dashboard rows: $e\n$st');
     }
     if (mounted) setState(() => _loading = false);
   }
 
-  /// Print AssetManifest contents so we know whether assets were bundled into the build.
   Future<void> _debugPrintAssetManifest() async {
     try {
       final manifest = await rootBundle.loadString('AssetManifest.json');
-      debugPrint('[manifest length] ${manifest.length}');
       final Map<String, dynamic> map = json.decode(manifest) as Map<String, dynamic>;
-      final svgs = map.keys
-          .where((k) => k.startsWith('assets/svgs/') && k.toLowerCase().endsWith('.svg'))
-          .toList();
-      debugPrint('[manifest svgs count] ${svgs.length}');
+      final svgs = map.keys.where((k) => k.startsWith('assets/svgs/') && k.toLowerCase().endsWith('.svg')).toList();
       debugPrint('[manifest svgs] ${svgs.join(", ")}');
     } catch (e, st) {
       debugPrint('[manifest error] $e\n$st');
     }
   }
 
-  /// Discover SVG assets packaged in the bundle, parse to find path elements,
-  /// and insert/upsert into DB so dashboard is populated after fresh install.
-  /// Note: expects your svg files to be in assets/svgs/
   Future<void> discoverAndSeedSvgs() async {
     try {
       final manifestJson = await rootBundle.loadString('AssetManifest.json');
@@ -105,28 +91,19 @@ This app is for educational/demo purposes only.
           .toList()
         ..sort();
 
-      debugPrint('[discover] svgAssets found (${svgAssets.length}): ${svgAssets.join(", ")}');
-
       for (final asset in svgAssets) {
-        debugPrint('[seed] processing: $asset');
         final svgService = SvgService(assetPath: asset);
-        await svgService.load(); // parse xml and viewBox
+        await svgService.load();
 
-        if (svgService.doc == null) {
-          debugPrint('[seed] failed to parse doc for $asset');
-          continue;
-        }
+        if (svgService.doc == null) continue;
 
         final tmpPathService = PathService();
-        tmpPathService.buildPathsFromDoc(svgService.doc!); // should gather path/circle/rect ids
+        tmpPathService.buildPathsFromDoc(svgService.doc!);
         final pathCount = tmpPathService.paths.length;
         final title = _titleFromAsset(asset);
 
-        debugPrint('[seed] asset=$asset | title=$title | pathCount=$pathCount');
-
         await _db.upsertImage(asset, title, pathCount);
         await _db.insertPathsForImage(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
-        debugPrint('[seed] inserted/updated DB rows for $asset');
       }
     } catch (e, st) {
       debugPrint('[discoverAndSeedSvgs error] $e\n$st');
@@ -146,17 +123,12 @@ This app is for educational/demo purposes only.
     final colored = (row['colored'] as int?) ?? 0;
     final percent = total == 0 ? 0 : ((colored / total) * 100).round();
 
-    // You currently have only one coloring SVG; show paint palette emoji as thumbnail
-    final String emoji = '🎨';
-
     return GestureDetector(
       onTap: () async {
         await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ColoringPage(assetPath: id, title: title),
-          ),
+          MaterialPageRoute(builder: (_) => ColoringPage(assetPath: id, title: title, username: widget.username)),
         );
-        await _loadRows(); // refresh after returning
+        await _loadRows();
       },
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -177,7 +149,7 @@ This app is for educational/demo purposes only.
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey.shade300),
                 ),
-                child: Center(child: Text(emoji, style: const TextStyle(fontSize: 32))),
+                child: const Center(child: Text('🎨', style: TextStyle(fontSize: 32))),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -257,7 +229,7 @@ This app is for educational/demo purposes only.
 
   void _logout() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const PhoneEntryScreen()),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }
@@ -286,9 +258,9 @@ This app is for educational/demo purposes only.
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
+        automaticallyImplyLeading: false,
+        title: Text('Hi, ${widget.username} 👋', style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
-          // Logout pill (pink)
           _pillButton(
             onPressed: _logout,
             color: const Color(0xFFFF6B6B),
@@ -309,12 +281,45 @@ This app is for educational/demo purposes only.
             : ListView(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 children: [
-                  // Progress Card with embedded info button
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                    child: Stack(
-                      clipBehavior: Clip.none,
+                    child: Column(
                       children: [
+                        // INFO PILL centered above the progress card (not floating)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Material(
+                              elevation: 6,
+                              borderRadius: BorderRadius.circular(28),
+                              color: Colors.white,
+                              child: InkWell(
+                                onTap: _openRheumaticInfo,
+                                borderRadius: BorderRadius.circular(28),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  constraints: const BoxConstraints(minHeight: 48),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      CircleAvatar(
+                                        backgroundColor: Color(0xFF6C4DFF),
+                                        radius: 16,
+                                        child: Icon(Icons.health_and_safety, color: Colors.white, size: 18),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Text('Rheumatic disease information', style: TextStyle(fontWeight: FontWeight.w600)),
+                                      SizedBox(width: 6),
+                                      Icon(Icons.chevron_right, size: 20, color: Colors.black54),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // Progress card
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(16),
@@ -332,29 +337,6 @@ This app is for educational/demo purposes only.
                               const SizedBox(height: 6),
                               const Text('Keep coloring to unlock new pages!', style: TextStyle(color: Colors.white70)),
                             ],
-                          ),
-                        ),
-                        // embedded circular info button (left)
-                        Positioned(
-                          left: -18,
-                          top: 30,
-                          child: Material(
-                            elevation: 6,
-                            shape: const CircleBorder(),
-                            color: Colors.white,
-                            child: InkWell(
-                              customBorder: const CircleBorder(),
-                              onTap: _openRheumaticInfo,
-                              child: Container(
-                                width: 52,
-                                height: 52,
-                                padding: const EdgeInsets.all(8),
-                                child: const CircleAvatar(
-                                  backgroundColor: Color(0xFF6C4DFF),
-                                  child: Icon(Icons.health_and_safety, color: Colors.white, size: 20),
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ],
