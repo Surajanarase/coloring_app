@@ -11,9 +11,8 @@ import '../auth/login_screen.dart';
 
 class DashboardPage extends StatefulWidget {
   final String username;
-  final int userId;
 
-  const DashboardPage({super.key, required this.username, required this.userId});
+  const DashboardPage({super.key, required this.username});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -26,7 +25,17 @@ class _DashboardPageState extends State<DashboardPage> {
   int _overall = 0;
 
   static const String rheumaticInfoText = '''
-Rheumatic diseases (...) -- shortened for brevity in code listing.
+Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
+
+Common signs:
+• Persistent joint pain and swelling
+• Morning stiffness lasting longer than 30 minutes
+• Fatigue, low-grade fever
+
+When to see a doctor:
+If you experience persistent joint pain, stiffness or swelling, consult a healthcare professional for evaluation and timely management.
+
+This app is for educational/demo purposes only.
 ''';
 
   @override
@@ -44,7 +53,7 @@ Rheumatic diseases (...) -- shortened for brevity in code listing.
   Future<void> _loadRows() async {
     setState(() => _loading = true);
     try {
-      final r = await _db.getDashboardRowsForUser(widget.userId);
+      final r = await _db.getDashboardRows();
       if (!mounted) return;
       setState(() => _rows = r);
 
@@ -93,11 +102,8 @@ Rheumatic diseases (...) -- shortened for brevity in code listing.
         final pathCount = tmpPathService.paths.length;
         final title = _titleFromAsset(asset);
 
-        // upsert image metadata globally
         await _db.upsertImage(asset, title, pathCount);
-
-        // ensure path rows exist for this user (so per-user progress tracked)
-        await _db.ensurePathsForUser(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList(), widget.userId);
+        await _db.insertPathsForImage(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
       }
     } catch (e, st) {
       debugPrint('[discoverAndSeedSvgs error] $e\n$st');
@@ -120,9 +126,7 @@ Rheumatic diseases (...) -- shortened for brevity in code listing.
     return GestureDetector(
       onTap: () async {
         await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ColoringPage(assetPath: id, title: title, username: widget.username, userId: widget.userId),
-          ),
+          MaterialPageRoute(builder: (_) => ColoringPage(assetPath: id, title: title, username: widget.username)),
         );
         await _loadRows();
       },
@@ -196,7 +200,7 @@ Rheumatic diseases (...) -- shortened for brevity in code listing.
                       ),
                     );
                     if (confirmed == true) {
-                      await _db.resetImageProgress(id, widget.userId);
+                      await _db.resetImageProgress(id);
                       await _loadRows();
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Progress reset')));
@@ -281,6 +285,7 @@ Rheumatic diseases (...) -- shortened for brevity in code listing.
                     padding: const EdgeInsets.symmetric(horizontal: 12.0),
                     child: Column(
                       children: [
+                        // INFO PILL centered above the progress card (not floating)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -314,6 +319,7 @@ Rheumatic diseases (...) -- shortened for brevity in code listing.
                           ],
                         ),
                         const SizedBox(height: 12),
+                        // Progress card
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(16),

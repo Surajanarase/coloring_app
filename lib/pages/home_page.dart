@@ -5,10 +5,9 @@ import 'colouring_page.dart';
 import 'dashboard_page.dart';
 
 class HomePage extends StatefulWidget {
-  // username and userId passed from login flow (REQUIRED)
+  // username passed from login flow (REQUIRED)
   final String username;
-  final int userId;
-  const HomePage({super.key, required this.username, required this.userId});
+  const HomePage({super.key, required this.username});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -102,13 +101,12 @@ class _HomePageState extends State<HomePage> {
         assetPath: 'assets/colouring_svg.svg',
         title: 'Coloring',
         username: widget.username,
-        userId: widget.userId,
       ),
     ));
   }
 
   void openDashboard() {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DashboardPage(username: widget.username, userId: widget.userId)));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DashboardPage(username: widget.username)));
   }
 
   void _goToPage(int idx) {

@@ -5,8 +5,7 @@ import '../services/svg_service.dart';
 
 class SvgViewer extends StatelessWidget {
   final String svgString;
-  /// Callback now sends the **global position** of the tap.
-  final void Function(Offset globalPos) onTapAt;
+  final void Function(Offset localPos) onTapAt;
   final ViewBox? viewBox;
   final bool showWidgetBorder; // if true, draws a UI border around the widget
 
@@ -28,10 +27,7 @@ class SvgViewer extends StatelessWidget {
 
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (details) {
-          // Forward the global position so parent can convert consistently
-          onTapAt(details.globalPosition);
-        },
+        onTapDown: (details) => onTapAt(details.localPosition),
         child: Center(
           child: AspectRatio(
             aspectRatio: aspect,
@@ -47,8 +43,8 @@ class SvgViewer extends StatelessWidget {
                 // Clip so SvgPicture doesn't paint outside the widget bounds
                 child: SvgPicture.string(
                   svgString,
-                  fit: BoxFit.contain,              // show whole image, preserves aspect ratio
-                  alignment: Alignment.topCenter,   // pin image to top (reduces perceived top-gap)
+                  fit: BoxFit.contain,        // show whole image, preserves aspect ratio
+                  alignment: Alignment.topCenter, // pin image to top (reduces perceived top-gap)
                 ),
               ),
             ),

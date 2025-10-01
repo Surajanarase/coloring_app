@@ -1,28 +1,23 @@
 // lib/pages/colouring_page.dart
 import 'package:flutter/material.dart';
 import 'package:xml/xml.dart';
-import 'dart:ui' as ui;
-
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
 import '../services/hit_test_service.dart';
 import '../services/color_service.dart';
 import '../widgets/svg_viewer.dart';
-import 'dashboard_page.dart';
 
 class ColoringPage extends StatefulWidget {
   final String assetPath;
   final String? title;
   final String username;
-  final int userId;
 
   const ColoringPage({
     super.key,
     required this.assetPath,
     this.title,
     required this.username,
-    required this.userId,
   });
 
   @override
@@ -38,15 +33,12 @@ class _ColoringPageState extends State<ColoringPage> {
 
   bool _loading = true;
   Color? _selectedColor;
-  String _currentTool = 'color';
+  String _currentTool = 'color'; // 'color' | 'eraser' | 'clear'
 
   static const double _viewerWidth = 360;
-  static const double _viewerHeight = 600;
+  static const double _viewerHeight = 520;
 
   final GlobalKey _containerKey = GlobalKey();
-  final TransformationController _transformationController =
-      TransformationController();
-
   final Map<String, String> _originalFills = {};
 
   @override
@@ -56,31 +48,27 @@ class _ColoringPageState extends State<ColoringPage> {
     _load();
   }
 
-  @override
-  void dispose() {
-    _transformationController.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
     await _svgService.load();
 
-    if (_svgService.doc != null) {
-      _rebuildPathService();
+    if (_svgServiceDocExists()) {
+      _pathService.buildPathsFromDoc(_svgService.doc!);
+
+      _hitTestService = HitTestService(
+        paths: _pathService.paths,
+        viewBox: _svgService.viewBox,
+      );
 
       final imageId = widget.assetPath;
-      final title = widget.title ?? imageId.split('/').last;
-      final pathIds = _pathServicePathsList();
-
-      await _db.upsertImage(imageId, title, pathIds.length);
-      await _db.ensurePathsForUser(imageId, pathIds, widget.userId);
+      final pathIds = _pathService.paths.keys.map((k) => k.toString()).toList();
+      await _db.upsertImage(imageId, widget.title ?? imageId.split('/').last, pathIds.length);
+      await _db.insertPathsForImage(imageId, pathIds);
 
       for (final pid in pathIds) {
         _originalFills[pid] = _getOriginalFillForElement(pid);
       }
 
-      final coloredRows =
-          await _db.getColoredPathsForImage(imageId, widget.userId);
+      final coloredRows = await _db.getColoredPathsForImage(imageId);
       for (final row in coloredRows) {
         final pid = row['id'] as String;
         final colorHex = (row['color'] as String?) ?? '';
@@ -89,41 +77,32 @@ class _ColoringPageState extends State<ColoringPage> {
         }
       }
 
-      _rebuildPathService();
+      _pathService.buildPathsFromDoc(_svgService.doc!);
+      _hitTestService = HitTestService(
+        paths: _pathService.paths,
+        viewBox: _svgService.viewBox,
+      );
     }
 
     if (!mounted) return;
     setState(() => _loading = false);
   }
 
-  List<String> _pathServicePathsList() =>
-      _pathService.paths.keys.map((k) => k.toString()).toList();
-
-  void _rebuildPathService() {
-    _pathService.buildPathsFromDoc(_svgService.doc!);
-    _hitTestService =
-        HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
-  }
+  bool _svgServiceDocExists() => _svgService.doc != null;
 
   String _getOriginalFillForElement(String id) {
     final doc = _svgService.doc;
     if (doc == null) return 'none';
     try {
       for (final XmlElement elem in doc.findAllElements('*')) {
-        final attrId = elem.getAttribute('id');
-        if (attrId == id) {
+        if (elem.getAttribute('id') == id) {
           final attrFill = elem.getAttribute('fill');
           if (attrFill != null && attrFill.trim().isNotEmpty) return attrFill;
           final style = elem.getAttribute('style');
           if (style != null && style.trim().isNotEmpty) {
-            final entries = style
-                .split(';')
-                .map((s) => s.trim())
-                .where((s) => s.isNotEmpty);
+            final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty);
             for (final entry in entries) {
-              if (entry.startsWith('fill:')) {
-                return entry.substring('fill:'.length).trim();
-              }
+              if (entry.startsWith('fill:')) return entry.substring('fill:'.length).trim();
             }
           }
           return 'none';
@@ -133,88 +112,45 @@ class _ColoringPageState extends State<ColoringPage> {
     return 'none';
   }
 
-  Future<void> _handlePointerUp(Offset globalPos) async {
-    final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) {
-      debugPrint('TAP: no container render box');
+  Offset _computeLocalOffset(RenderBox containerBox, Offset globalPosition) {
+    return containerBox.globalToLocal(globalPosition);
+  }
+
+  Future<void> _onTapAt(Offset localPos, Size widgetSize) async {
+    if (_hitTestService == null) return;
+    final hitId = _hitTestService!.hitTest(localPos, widgetSize);
+    if (hitId == null) return;
+
+    if (_currentTool == 'color' && _selectedColor == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a color first!')));
       return;
     }
 
-    // 1. Convert global -> local widget coords
-    final localInContainer = box.globalToLocal(globalPos);
-    debugPrint(
-        'TAP: localInContainer=$localInContainer containerSize=${box.size}');
+    // Push snapshot for undo
+    _colorService.pushSnapshot(_svgService.getSvgString());
 
-    // 2. Undo InteractiveViewer transform (zoom/pan)
-    final Matrix4 matrix = _transformationController.value;
-    final Matrix4 inverse = Matrix4.copy(matrix);
-    inverse.invert();
-    final ui.Offset untransformed =
-        MatrixUtils.transformPoint(inverse, localInContainer);
-    debugPrint('INVERSE: untransformed=$untransformed');
-
-    // 3. Hit test directly with widget coords → HitTestService handles mapping
-    final Size widgetSize = Size(box.size.width, box.size.height);
-    final hitId = _hitTestService?.hitTest(untransformed, widgetSize);
-    debugPrint('HIT: hitId=$hitId');
-
-    String? finalHit = hitId;
-    if (finalHit == null) {
-      const offsets = [
-        Offset(1, 0),
-        Offset(-1, 0),
-        Offset(0, 1),
-        Offset(0, -1),
-        Offset(2, 0)
-      ];
-      for (final off in offsets) {
-        final tryPt = untransformed + off;
-        final tryHit = _hitTestService?.hitTest(tryPt, widgetSize);
-        if (tryHit != null) {
-          finalHit = tryHit;
-          debugPrint('HIT: fallback hit at offset $off -> $tryHit');
-          break;
-        }
-      }
-    }
-
-    if (finalHit == null) {
-      debugPrint('HIT: no hit found for tap.');
-      return;
-    }
-
-    // 4. Apply color or erase
     if (_currentTool == 'color') {
-      if (_selectedColor == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Select a color first')));
-        return;
-      }
-      final colorHex = _colorService.colorToHex(_selectedColor!);
-      debugPrint('APPLY: coloring id=$finalHit with $colorHex');
-      _svgService.applyFillToElementById(finalHit, colorHex);
-      await _db.markPathColored(finalHit, colorHex, widget.userId);
-    } else {
-      final orig = _originalFills[finalHit] ?? 'none';
-      debugPrint('APPLY: erasing id=$finalHit restore to $orig');
-      _svgService.applyFillToElementById(finalHit, orig);
-      await _db.markPathUncolored(finalHit, widget.userId);
+      final colorHex = _colorToHex(_selectedColor!);
+      _svgService.applyFillToElementById(hitId, colorHex);
+      await _db.markPathColored(hitId, colorHex);
+    } else if (_currentTool == 'eraser') {
+      final orig = _originalFills[hitId] ?? 'none';
+      _svgService.applyFillToElementById(hitId, orig);
+      await _db.markPathUncolored(hitId);
     }
 
-    if (_svgService.doc != null) _rebuildPathService();
+    if (_svgService.doc != null) {
+      _pathService.buildPathsFromDoc(_svgService.doc!);
+      _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+    }
+
     if (!mounted) return;
     setState(() {});
-
-    final svgNow = _svgService.getSvgString() ?? '';
-    if (svgNow.isNotEmpty) {
-      debugPrint(
-        'SVG_AFTER: ${svgNow.substring(0, 300).replaceAll("\n", "")}...',
-      );
-    } else {
-      debugPrint('SVG_AFTER: (empty)');
-    }
   }
+
+  // Convert color to hex using ColorService
+  String _colorToHex(Color c) => _colorService.colorToHex(c);
 
   void _onSelectColor(Color color) {
     setState(() {
@@ -225,55 +161,122 @@ class _ColoringPageState extends State<ColoringPage> {
 
   Future<void> _clearCanvasAll() async {
     if (_svgService.doc == null) return;
+    _colorService.pushSnapshot(_svgService.getSvgString());
+
     final allIds = _pathService.paths.keys.map((k) => k.toString()).toList();
     for (final pid in allIds) {
       final orig = _originalFills[pid] ?? 'none';
       _svgService.applyFillToElementById(pid, orig);
-      await _db.markPathUncolored(pid, widget.userId);
+      await _db.markPathUncolored(pid);
     }
-    _rebuildPathService();
+
+    _pathService.buildPathsFromDoc(_svgService.doc!);
+    _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Canvas cleared')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Canvas cleared')));
   }
 
   Future<void> _saveProgress() async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Your coloring has been saved! 🎨')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved! 🎉')));
     Navigator.of(context).pop();
   }
 
-  void _openDashboardShortcut() {
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) =>
-            DashboardPage(username: widget.username, userId: widget.userId)));
+  Future<void> _restoreDbFromSvg() async {
+    final doc = _svgService.doc;
+    if (doc == null) return;
+    for (final elem in doc.findAllElements('*')) {
+      final id = elem.getAttribute('id');
+      if (id == null || id.isEmpty) continue;
+      String? fill;
+      final f = elem.getAttribute('fill');
+      if (f != null && f.trim().isNotEmpty) {
+        fill = f.trim();
+      } else {
+        final style = elem.getAttribute('style');
+        if (style != null && style.trim().isNotEmpty) {
+          final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty);
+          for (final entry in entries) {
+            if (entry.startsWith('fill:')) {
+              fill = entry.substring('fill:'.length).trim();
+              break;
+            }
+          }
+        }
+      }
+      if (fill == null || fill.isEmpty || fill == 'none') {
+        await _db.markPathUncolored(id);
+      } else {
+        await _db.markPathColored(id, fill);
+      }
+    }
   }
 
-  Widget _pillButton(
-      {required VoidCallback onPressed,
-      required Color color,
-      required Widget child}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: onPressed,
-        child: Container(
-          constraints: const BoxConstraints(minWidth: 72, minHeight: 34),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: const [
-              BoxShadow(
-                  color: Color(0x22000000),
-                  blurRadius: 4,
-                  offset: Offset(0, 2))
-            ],
-          ),
-          child: Center(child: child),
+  void _undoOneStep() async {
+    final xml = _popColorServiceSnapshot();
+    if (xml == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing to undo')));
+      return;
+    }
+    _svgService.setSvgString(xml);
+    _pathService.buildPathsFromDoc(_svgService.doc!);
+    _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+
+    await _restoreDbFromSvg();
+
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Undone one step')));
+  }
+
+  String? _popColorServiceSnapshot() => _colorService.popSnapshot();
+
+  Widget _circleHeaderButton({required VoidCallback onTap, required IconData icon, required List<Color> gradient}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+          shape: BoxShape.circle,
+          boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
+        ),
+        child: Icon(icon, color: Colors.white, size: 28),
+      ),
+    );
+  }
+
+  Widget _toolPill({required VoidCallback onTap, required IconData icon, required String label, required bool active}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFFFFBED) : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: active ? Colors.deepPurple : Colors.grey.shade300, width: active ? 1.8 : 1.0),
+          boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: active ? Colors.deepPurple : Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: active ? Colors.white : Colors.black54),
+            ),
+            const SizedBox(width: 12),
+            Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: active ? Colors.deepPurple : Colors.black87)),
+          ],
         ),
       ),
     );
@@ -281,230 +284,207 @@ class _ColoringPageState extends State<ColoringPage> {
 
   @override
   Widget build(BuildContext context) {
-    final appBar = AppBar(
-      leadingWidth: 120,
-      leading: _pillButton(
-        onPressed: () => Navigator.of(context).pop(),
-        color: const Color(0xFF657DF6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.arrow_back, size: 16, color: Colors.white),
-            SizedBox(width: 6),
-            Text('Back',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
-          ],
+    final header = PreferredSize(
+      preferredSize: const Size.fromHeight(96),
+      child: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFFFFE8F2), Color(0xFFE8F7FF), Color(0xFFEFF7EE)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+          ),
         ),
+        title: const Text('Maria likes to play', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
+        centerTitle: true,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 8.0),
+          child: _circleHeaderButton(onTap: () => Navigator.of(context).pop(), icon: Icons.arrow_back, gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: _circleHeaderButton(onTap: _saveProgress, icon: Icons.save, gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]),
+          )
+        ],
       ),
-      title: Text(widget.title ?? 'Coloring'),
-      centerTitle: true,
-      actions: [
-        _pillButton(
-          onPressed: _saveProgress,
-          color: const Color(0xFF2FC64D),
-          child: Row(children: const [
-            Icon(Icons.save_alt, size: 16, color: Colors.white),
-            SizedBox(width: 6),
-            Text('Save',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
-          ]),
-        ),
-        const SizedBox(width: 8),
-      ],
     );
 
     if (_loading) {
-      return Scaffold(
-          appBar: appBar, body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(appBar: header, body: const Center(child: CircularProgressIndicator()));
     }
 
     final svgString = _svgService.getSvgString() ?? '';
     if (svgString.isEmpty) {
-      return Scaffold(
-          appBar: appBar,
-          body: const Center(child: Text('Failed to load SVG')));
+      return Scaffold(appBar: header, body: const Center(child: Text('Failed to load SVG')));
     }
 
-    final ButtonStyle toolButtonStyle = ElevatedButton.styleFrom(
-      backgroundColor: Colors.white,
-      foregroundColor: Colors.black87,
-      elevation: 4,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w700),
-    );
+    const horizontalMargin = 12.0;
 
     return Scaffold(
-      appBar: appBar,
-      backgroundColor: const Color(0xFFFDF2F8),
+      appBar: header,
+      backgroundColor: const Color(0xFFFFFBFE),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
             children: [
               const SizedBox(height: 12),
+
+              // SVG Canvas
               Center(
                 child: Container(
                   key: _containerKey,
                   width: _viewerWidth,
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  height: _viewerHeight,
+                  padding: EdgeInsets.zero,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x11000000), blurRadius: 12)
-                    ],
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.grey.shade200, width: 1.4),
+                    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
                   ),
-                  child: Column(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (details) {
+                      final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
+                      if (box == null) return;
+                      final local = _computeLocalOffset(box, details.globalPosition);
+                      _onTapAt(local, box.size);
+                    },
+                    child: SvgViewer(
+                      svgString: svgString,
+                      viewBox: _svgService.viewBox,
+                      onTapAt: (local) => _onTapAt(local, const Size(_viewerWidth, _viewerHeight)),
+                      showWidgetBorder: false,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Tools card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
+                child: Container(
+                  width: _viewerWidth,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 48),
-                            Expanded(
-                                child: Text(widget.title ?? 'Coloring',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 18))),
-                            const SizedBox(width: 48),
-                          ],
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: _toolPill(
+                          onTap: () => setState(() => _currentTool = 'color'),
+                          icon: Icons.color_lens,
+                          label: 'Color',
+                          active: _currentTool == 'color',
                         ),
                       ),
-                      Container(
-                        width: _viewerWidth,
-                        height: _viewerHeight,
-                        padding: const EdgeInsets.all(10),
-                        color: Colors.transparent,
-                        child: InteractiveViewer(
-                          transformationController: _transformationController,
-                          panEnabled: false,
-                          scaleEnabled: true,
-                          minScale: 1.0,
-                          maxScale: 6.0,
-                          boundaryMargin: EdgeInsets.zero,
-                          child: SvgViewer(
-                            svgString: svgString,
-                            onTapAt: (globalPos) => _handlePointerUp(globalPos),
-                            viewBox: _svgService.viewBox,
-                            showWidgetBorder: false,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      // Tools row
                       Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () =>
-                                    setState(() => _currentTool = 'color'),
-                                style: toolButtonStyle,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.brush_rounded, size: 18),
-                                    const SizedBox(width: 8),
-                                    const Text('Color'),
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      width: 18,
-                                      height: 18,
-                                      decoration: BoxDecoration(
-                                        color: _selectedColor ??
-                                            Colors.transparent,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                            color: Colors.grey.shade300),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () =>
-                                    setState(() => _currentTool = 'eraser'),
-                                style: toolButtonStyle,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Icon(Icons.cleaning_services, size: 18),
-                                    SizedBox(width: 8),
-                                    Text('Eraser'),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: _clearCanvasAll,
-                                style: toolButtonStyle,
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Icon(Icons.delete_outline, size: 18),
-                                    SizedBox(width: 8),
-                                    Text('Clear'),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: _toolPill(
+                          onTap: () => setState(() => _currentTool = 'eraser'),
+                          icon: Icons.cleaning_services_outlined,
+                          label: 'Eraser',
+                          active: _currentTool == 'eraser',
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      // Palette
                       Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        child: Wrap(
-                          spacing: 10,
-                          runSpacing: 8,
-                          alignment: WrapAlignment.center,
-                          children: _colorService.palette.map((c) {
-                            final isSelected = _selectedColor == c;
-                            return GestureDetector(
-                              onTap: () => _onSelectColor(c),
-                              child: Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: c,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? Colors.deepPurple
-                                        : Colors.grey.shade300,
-                                    width: isSelected ? 3 : 1,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: _toolPill(
+                          onTap: () {
+                            setState(() => _currentTool = 'clear');
+                            _clearCanvasAll();
+                          },
+                          icon: Icons.delete_outline,
+                          label: 'Clear',
+                          active: _currentTool == 'clear',
                         ),
                       ),
-                      const SizedBox(height: 12),
                     ],
                   ),
                 ),
               ),
+
               const SizedBox(height: 16),
+
+              // Palette (2 rows x 7)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
+                child: Container(
+                  width: _viewerWidth,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 44 * 2 + 12,
+                    child: GridView.count(
+                      crossAxisCount: 7,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      physics: const NeverScrollableScrollPhysics(),
+                      childAspectRatio: 1,
+                      padding: EdgeInsets.zero,
+                      children: _colorService.palette.map((c) {
+                        final isSelected = _selectedColor == c;
+                        return GestureDetector(
+                          onTap: () => _onSelectColor(c),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              boxShadow: isSelected ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))] : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
+                              border: Border.all(color: isSelected ? Colors.deepPurple : Colors.grey.shade200, width: isSelected ? 3.0 : 1.0),
+                            ),
+                            child: ClipOval(child: Container(color: c)),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 26),
             ],
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _openDashboardShortcut,
-        child: const Icon(Icons.dashboard),
+
+      // Undo bubble
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: _undoOneStep,
+            child: Container(
+              width: 56,
+              height: 56,
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)]),
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))],
+              ),
+              child: const Icon(Icons.undo, color: Colors.black87),
+            ),
+          ),
+        ],
       ),
     );
   }

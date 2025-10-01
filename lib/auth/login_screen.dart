@@ -36,35 +36,45 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     if (_isRegisterMode) {
-      final newId = await _db.createUser(username, password);
+      final result = await _db.createUser(username, password);
+
       if (!mounted) return;
       setState(() => _loading = false);
 
-      if (newId == -1) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Username already exists.')));
+      if (result == 'exists') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Username already exists. Pick another.')),
+        );
         return;
-      } else if (newId <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Error creating account.')));
+      } else if (result != 'ok') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('⚠️ Error creating account: $result')),
+        );
         return;
       }
 
-      // Navigate to Dashboard with user id
+      // registration succeeded -> go to Dashboard
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => DashboardPage(username: username, userId: newId)),
+        MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
       );
     } else {
-      final userId = await _db.authenticateUser(username, password);
+      final valid = await _db.authenticateUser(username, password);
+
       if (!mounted) return;
       setState(() => _loading = false);
 
-      if (userId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Invalid username or password')));
+      if (!valid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Invalid username or password')),
+        );
         return;
       }
 
+      // login succeeded -> go to Dashboard
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => DashboardPage(username: username, userId: userId)),
+        MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
       );
     }
   }
