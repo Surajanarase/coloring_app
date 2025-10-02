@@ -1,4 +1,5 @@
 // lib/pages/colouring_page.dart
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:xml/xml.dart';
 import '../services/db_service.dart';
@@ -51,17 +52,13 @@ class _ColoringPageState extends State<ColoringPage> {
   Future<void> _load() async {
     await _svgService.load();
 
-    if (_svgServiceDocExists()) {
-      _pathService.buildPathsFromDoc(_svgService.doc!);
-
-      _hitTestService = HitTestService(
-        paths: _pathService.paths,
-        viewBox: _svgService.viewBox,
-      );
+    if (_svgService.doc != null) {
+      _buildPathsAndHitTest();
 
       final imageId = widget.assetPath;
       final pathIds = _pathService.paths.keys.map((k) => k.toString()).toList();
-      await _db.upsertImage(imageId, widget.title ?? imageId.split('/').last, pathIds.length);
+      await _db.upsertImage(
+          imageId, widget.title ?? imageId.split('/').last, pathIds.length);
       await _db.insertPathsForImage(imageId, pathIds);
 
       for (final pid in pathIds) {
@@ -77,18 +74,18 @@ class _ColoringPageState extends State<ColoringPage> {
         }
       }
 
-      _pathService.buildPathsFromDoc(_svgService.doc!);
-      _hitTestService = HitTestService(
-        paths: _pathService.paths,
-        viewBox: _svgService.viewBox,
-      );
+      _buildPathsAndHitTest();
     }
 
     if (!mounted) return;
     setState(() => _loading = false);
   }
 
-  bool _svgServiceDocExists() => _svgService.doc != null;
+  void _buildPathsAndHitTest() {
+    _pathService.buildPathsFromDoc(_svgService.doc!);
+    _hitTestService =
+        HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+  }
 
   String _getOriginalFillForElement(String id) {
     final doc = _svgService.doc;
@@ -100,9 +97,14 @@ class _ColoringPageState extends State<ColoringPage> {
           if (attrFill != null && attrFill.trim().isNotEmpty) return attrFill;
           final style = elem.getAttribute('style');
           if (style != null && style.trim().isNotEmpty) {
-            final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty);
+            final entries = style
+                .split(';')
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty);
             for (final entry in entries) {
-              if (entry.startsWith('fill:')) return entry.substring('fill:'.length).trim();
+              if (entry.startsWith('fill:')) {
+                return entry.substring('fill:'.length).trim();
+              }
             }
           }
           return 'none';
@@ -123,12 +125,12 @@ class _ColoringPageState extends State<ColoringPage> {
 
     if (_currentTool == 'color' && _selectedColor == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a color first!')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pick a color first!')));
       return;
     }
 
-    // Push snapshot for undo
-    _colorService.pushSnapshot(_svgService.getSvgString());
+    _tryPushSnapshot(_svgService.getSvgString());
 
     if (_currentTool == 'color') {
       final colorHex = _colorToHex(_selectedColor!);
@@ -141,17 +143,34 @@ class _ColoringPageState extends State<ColoringPage> {
     }
 
     if (_svgService.doc != null) {
-      _pathService.buildPathsFromDoc(_svgService.doc!);
-      _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+      _buildPathsAndHitTest();
     }
 
     if (!mounted) return;
     setState(() {});
   }
 
-  // Convert color to hex using ColorService
-  String _colorToHex(Color c) => _colorService.colorToHex(c);
+  void _tryPushSnapshot(String? xml) {
+    try {
+      _colorService.pushSnapshot(xml);
+    } catch (_) {}
+  }
 
+  String _colorToHex(Color c) {
+    try {
+      return _colorService.colorToHex(c);
+    } catch (_) {
+      final int r = ((c.r) * 255.0).round() & 0xff;
+      final int g = ((c.g) * 255.0).round() & 0xff;
+      final int b = ((c.b) * 255.0).round() & 0xff;
+      final rr = r.toRadixString(16).padLeft(2, '0');
+      final gg = g.toRadixString(16).padLeft(2, '0');
+      final bb = b.toRadixString(16).padLeft(2, '0');
+      return '#$rr$gg$bb';
+    }
+  }
+
+  // This is referenced by palette grid taps.
   void _onSelectColor(Color color) {
     setState(() {
       _selectedColor = color;
@@ -159,9 +178,10 @@ class _ColoringPageState extends State<ColoringPage> {
     });
   }
 
+  // This is referenced by the Clear tool pill
   Future<void> _clearCanvasAll() async {
     if (_svgService.doc == null) return;
-    _colorService.pushSnapshot(_svgService.getSvgString());
+    _tryPushSnapshot(_svgService.getSvgString());
 
     final allIds = _pathService.paths.keys.map((k) => k.toString()).toList();
     for (final pid in allIds) {
@@ -170,17 +190,18 @@ class _ColoringPageState extends State<ColoringPage> {
       await _db.markPathUncolored(pid);
     }
 
-    _pathService.buildPathsFromDoc(_svgService.doc!);
-    _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+    _buildPathsAndHitTest();
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Canvas cleared')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Canvas cleared')));
   }
 
   Future<void> _saveProgress() async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved! 🎉')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Saved! 🎉')));
     Navigator.of(context).pop();
   }
 
@@ -197,7 +218,10 @@ class _ColoringPageState extends State<ColoringPage> {
       } else {
         final style = elem.getAttribute('style');
         if (style != null && style.trim().isNotEmpty) {
-          final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty);
+          final entries = style
+              .split(';')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty);
           for (final entry in entries) {
             if (entry.startsWith('fill:')) {
               fill = entry.substring('fill:'.length).trim();
@@ -215,26 +239,89 @@ class _ColoringPageState extends State<ColoringPage> {
   }
 
   void _undoOneStep() async {
-    final xml = _popColorServiceSnapshot();
+    String? xml;
+    try {
+      xml = _colorService.popSnapshot();
+    } catch (_) {
+      xml = null;
+    }
+
     if (xml == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing to undo')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Nothing to undo')));
       return;
     }
+
     _svgService.setSvgString(xml);
-    _pathService.buildPathsFromDoc(_svgService.doc!);
-    _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+    _buildPathsAndHitTest();
 
     await _restoreDbFromSvg();
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Undone one step')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Undone one step')));
   }
 
-  String? _popColorServiceSnapshot() => _colorService.popSnapshot();
+  Widget _toolPill({
+    required VoidCallback onTap,
+    required IconData icon,
+    required String label,
+    required bool active,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFFFFBED) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: active ? Colors.deepPurple : Colors.grey.shade300,
+              width: active ? 1.8 : 1.0),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: active ? Colors.deepPurple : Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon,
+                  size: 18, color: active ? Colors.white : Colors.black54),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: active ? Colors.deepPurple : Colors.black87,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-  Widget _circleHeaderButton({required VoidCallback onTap, required IconData icon, required List<Color> gradient}) {
+  Widget _circleHeaderButton(
+      {required VoidCallback onTap,
+      required IconData icon,
+      required List<Color> gradient}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -242,42 +329,17 @@ class _ColoringPageState extends State<ColoringPage> {
         width: 56,
         height: 56,
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+          gradient: LinearGradient(
+              colors: gradient,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight),
           shape: BoxShape.circle,
-          boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
-        ),
-        child: Icon(icon, color: Colors.white, size: 28),
-      ),
-    );
-  }
-
-  Widget _toolPill({required VoidCallback onTap, required IconData icon, required String label, required bool active}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: active ? const Color(0xFFFFFBED) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: active ? Colors.deepPurple : Colors.grey.shade300, width: active ? 1.8 : 1.0),
-          boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: active ? Colors.deepPurple : Colors.grey.shade100,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 20, color: active ? Colors.white : Colors.black54),
-            ),
-            const SizedBox(width: 12),
-            Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: active ? Colors.deepPurple : Colors.black87)),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))
           ],
         ),
+        child: Icon(icon, color: Colors.white, size: 28),
       ),
     );
   }
@@ -299,31 +361,46 @@ class _ColoringPageState extends State<ColoringPage> {
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
           ),
         ),
-        title: const Text('Maria likes to play', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
+        title: const Text('Maria likes to play',
+            style: TextStyle(
+                fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
         centerTitle: true,
         leading: Padding(
           padding: const EdgeInsets.only(left: 8.0),
-          child: _circleHeaderButton(onTap: () => Navigator.of(context).pop(), icon: Icons.arrow_back, gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]),
+          child: _circleHeaderButton(
+              onTap: () => Navigator.of(context).pop(),
+              icon: Icons.arrow_back,
+              gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]),
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
-            child: _circleHeaderButton(onTap: _saveProgress, icon: Icons.save, gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]),
+            child: _circleHeaderButton(
+                onTap: _saveProgress,
+                icon: Icons.save,
+                gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]),
           )
         ],
       ),
     );
 
     if (_loading) {
-      return Scaffold(appBar: header, body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(
+          appBar: header,
+          body: const Center(child: CircularProgressIndicator()));
     }
 
     final svgString = _svgService.getSvgString() ?? '';
     if (svgString.isEmpty) {
-      return Scaffold(appBar: header, body: const Center(child: Text('Failed to load SVG')));
+      return Scaffold(
+          appBar: header,
+          body: const Center(child: Text('Failed to load SVG')));
     }
 
     const horizontalMargin = 12.0;
+    final screenW = MediaQuery.of(context).size.width;
+    final effectiveWidth =
+        math.min(_viewerWidth, screenW - 2 * horizontalMargin);
 
     return Scaffold(
       appBar: header,
@@ -334,31 +411,73 @@ class _ColoringPageState extends State<ColoringPage> {
             children: [
               const SizedBox(height: 12),
 
+              // Undo button neatly above canvas
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: horizontalMargin),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    GestureDetector(
+                      onTap: _undoOneStep,
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                              colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 4))
+                          ],
+                        ),
+                        child: const Icon(Icons.undo, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
               // SVG Canvas
               Center(
                 child: Container(
                   key: _containerKey,
-                  width: _viewerWidth,
+                  width: effectiveWidth,
                   height: _viewerHeight,
                   padding: EdgeInsets.zero,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: Colors.grey.shade200, width: 1.4),
-                    boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
+                    boxShadow: const [
+                      BoxShadow(
+                          color: Color(0x14000000),
+                          blurRadius: 12,
+                          offset: Offset(0, 6))
+                    ],
                   ),
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTapUp: (details) {
-                      final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
+                      final box = _containerKey.currentContext
+                          ?.findRenderObject() as RenderBox?;
                       if (box == null) return;
-                      final local = _computeLocalOffset(box, details.globalPosition);
+                      final local =
+                          _computeLocalOffset(box, details.globalPosition);
                       _onTapAt(local, box.size);
                     },
                     child: SvgViewer(
                       svgString: svgString,
                       viewBox: _svgService.viewBox,
-                      onTapAt: (local) => _onTapAt(local, const Size(_viewerWidth, _viewerHeight)),
+                      onTapAt: (local) => _onTapAt(
+                          local, const Size(_viewerWidth, _viewerHeight)),
                       showWidgetBorder: false,
                     ),
                   ),
@@ -367,54 +486,63 @@ class _ColoringPageState extends State<ColoringPage> {
 
               const SizedBox(height: 16),
 
-              // Tools card
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
-                child: Container(
-                  width: _viewerWidth,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+              // TOOLS CARD (UPDATED)
+              Builder(builder: (context) {
+                final pillSpacing = 8.0;
+                final totalPadding = 2 * horizontalMargin + 16;
+                final availableWidth = effectiveWidth - totalPadding - (pillSpacing * 2);
+                final pillWidth = (availableWidth / 3).clamp(110.0, 220.0);
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
+                  child: Container(
+                    width: effectiveWidth,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: pillWidth,
+                          child: _toolPill(
+                            onTap: () => setState(() => _currentTool = 'color'),
+                            icon: Icons.color_lens,
+                            label: 'Color',
+                            active: _currentTool == 'color',
+                          ),
+                        ),
+                        SizedBox(width: pillSpacing),
+                        SizedBox(
+                          width: pillWidth,
+                          child: _toolPill(
+                            onTap: () => setState(() => _currentTool = 'eraser'),
+                            icon: Icons.cleaning_services_outlined,
+                            label: 'Eraser',
+                            active: _currentTool == 'eraser',
+                          ),
+                        ),
+                        SizedBox(width: pillSpacing),
+                        SizedBox(
+                          width: pillWidth,
+                          child: _toolPill(
+                            onTap: () {
+                              setState(() => _currentTool = 'clear');
+                              _clearCanvasAll();
+                            },
+                            icon: Icons.delete_outline,
+                            label: 'Clear',
+                            active: _currentTool == 'clear',
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: _toolPill(
-                          onTap: () => setState(() => _currentTool = 'color'),
-                          icon: Icons.color_lens,
-                          label: 'Color',
-                          active: _currentTool == 'color',
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: _toolPill(
-                          onTap: () => setState(() => _currentTool = 'eraser'),
-                          icon: Icons.cleaning_services_outlined,
-                          label: 'Eraser',
-                          active: _currentTool == 'eraser',
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: _toolPill(
-                          onTap: () {
-                            setState(() => _currentTool = 'clear');
-                            _clearCanvasAll();
-                          },
-                          icon: Icons.delete_outline,
-                          label: 'Clear',
-                          active: _currentTool == 'clear',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+                );
+              }),
 
               const SizedBox(height: 16),
 
@@ -422,7 +550,7 @@ class _ColoringPageState extends State<ColoringPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
                 child: Container(
-                  width: _viewerWidth,
+                  width: effectiveWidth,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)], begin: Alignment.topLeft, end: Alignment.bottomRight),
@@ -447,7 +575,9 @@ class _ColoringPageState extends State<ColoringPage> {
                             duration: const Duration(milliseconds: 160),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              boxShadow: isSelected ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))] : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
+                              boxShadow: isSelected
+                                  ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))]
+                                  : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
                               border: Border.all(color: isSelected ? Colors.deepPurple : Colors.grey.shade200, width: isSelected ? 3.0 : 1.0),
                             ),
                             child: ClipOval(child: Container(color: c)),
@@ -463,28 +593,6 @@ class _ColoringPageState extends State<ColoringPage> {
             ],
           ),
         ),
-      ),
-
-      // Undo bubble
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GestureDetector(
-            onTap: _undoOneStep,
-            child: Container(
-              width: 56,
-              height: 56,
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)]),
-                shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))],
-              ),
-              child: const Icon(Icons.undo, color: Colors.black87),
-            ),
-          ),
-        ],
       ),
     );
   }
