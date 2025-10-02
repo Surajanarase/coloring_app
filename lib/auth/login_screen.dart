@@ -1,4 +1,5 @@
 // lib/auth/login_screen.dart
+
 import 'package:flutter/material.dart';
 import '../services/db_service.dart';
 import '../pages/dashboard_page.dart';
@@ -17,6 +18,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
 
+  final FocusNode _usernameFocus = FocusNode();
+  final FocusNode _passwordFocus = FocusNode();
+
   bool _isRegisterMode = false;
   bool _loading = false;
   bool _obscure = true;
@@ -25,145 +29,287 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
     final username = _usernameCtrl.text.trim();
     final password = _passwordCtrl.text;
 
     setState(() => _loading = true);
 
-    if (_isRegisterMode) {
-      final result = await _db.createUser(username, password);
+    try {
+      if (_isRegisterMode) {
+        final result = await _db.createUser(username, password);
 
+        if (!mounted) return;
+        setState(() => _loading = false);
+
+        if (result == 'exists') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('❌ Username already exists. Pick another.')),
+          );
+          return;
+        } else if (result != 'ok') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('⚠️ Error creating account: $result')),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
+        );
+      } else {
+        final valid = await _db.authenticateUser(username, password);
+
+        if (!mounted) return;
+        setState(() => _loading = false);
+
+        if (!valid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('❌ Invalid username or password')),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
+        );
+      }
+    } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-
-      if (result == 'exists') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ Username already exists. Pick another.')),
-        );
-        return;
-      } else if (result != 'ok') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Error creating account: $result')),
-        );
-        return;
-      }
-
-      // registration succeeded -> go to Dashboard
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
-      );
-    } else {
-      final valid = await _db.authenticateUser(username, password);
-
-      if (!mounted) return;
-      setState(() => _loading = false);
-
-      if (!valid) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ Invalid username or password')),
-        );
-        return;
-      }
-
-      // login succeeded -> go to Dashboard
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unexpected error: $e')),
       );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final cardWidth = MediaQuery.of(context).size.width.clamp(320.0, 760.0);
+  void _toggleMode() {
+    setState(() {
+      _isRegisterMode = !_isRegisterMode;
+    });
+  }
 
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF9ABAFF), Color(0xFFECE17E), Color(0xFF8EDF79)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            stops: [0.0, 0.48, 1.0],
+  Widget _buildLogo() {
+    return Column(
+      children: [
+        Image.asset(
+          'assets/logo.png',
+          width: 180,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.favorite, color: Colors.red, size: 46),
+              SizedBox(width: 8),
+              Text(
+                "COLOURS TO SAVE HEARTS",
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+              )
+            ],
           ),
         ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
-            child: Container(
-              width: cardWidth,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 6))
-                ],
-              ),
-              child: Form(
-                key: _formKey,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text(
-                    _isRegisterMode ? 'Create account' : 'Welcome back',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Use username and password to sign in', textAlign: TextAlign.center),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _usernameCtrl,
-                    decoration: InputDecoration(
-                      labelText: 'Username',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF9ABAFF), Color(0xFFECE17E), Color(0xFF8EDF79)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0.0, 0.48, 1.0],
+            ),
+          ),
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo outside the form
+                  _buildLogo(),
+
+                  // The Card with form
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: 0.95),
+                          Colors.white.withValues(alpha: 0.85),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 6)),
+                      ],
                     ),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) return 'Enter username';
-                      if (v.trim().length < 3) return 'At least 3 characters';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _passwordCtrl,
-                    obscureText: _obscure,
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      suffixIcon: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                        onPressed: () => setState(() => _obscure = !_obscure),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _isRegisterMode ? 'Create account' : 'Welcome back',
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Use username and password to sign in',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+
+                          // USERNAME
+                          TextFormField(
+                            controller: _usernameCtrl,
+                            focusNode: _usernameFocus,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.username],
+                            decoration: InputDecoration(
+                              labelText: 'Username',
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.9),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              prefixIcon: const Icon(Icons.person_outline),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) return 'Enter username';
+                              if (v.trim().length < 3) return 'At least 3 characters';
+                              return null;
+                            },
+                            onFieldSubmitted: (_) {
+                              _passwordFocus.requestFocus();
+                            },
+                          ),
+                          const SizedBox(height: 12),
+
+                          // PASSWORD
+                          TextFormField(
+                            controller: _passwordCtrl,
+                            focusNode: _passwordFocus,
+                            obscureText: _obscure,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.password],
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.9),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                tooltip: _obscure ? 'Show password' : 'Hide password',
+                                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                                onPressed: () => setState(() => _obscure = !_obscure),
+                              ),
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return 'Enter password';
+                              if (v.length < 4) return 'At least 4 characters';
+                              return null;
+                            },
+                            onFieldSubmitted: (_) {
+                              if (!_loading) _submit();
+                            },
+                          ),
+
+                          const SizedBox(height: 18),
+
+                          // SUBMIT BUTTON (gradient semi-transparent blue)
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              onPressed: _loading ? null : _submit,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.blue.withValues(alpha: 0.3),
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 4,
+                              ),
+                              child: Ink(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.blue.withValues(alpha: 0.8),
+                                      Colors.indigo.withValues(alpha: 0.8),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  child: _loading
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2.2,
+                                          ),
+                                        )
+                                      : Text(
+                                          _isRegisterMode ? 'Create account' : 'Sign in',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          // Toggle register/login
+                          TextButton(
+                            onPressed: _loading ? null : _toggleMode,
+                            child: Text(
+                              _isRegisterMode
+                                  ? 'Already have an account? Sign in'
+                                  : 'Don\'t have an account? Register',
+                            ),
+                          ),
+
+                          const SizedBox(height: 6),
+                          const Text(
+                            "This app helps children learn colours and spread awareness ❤️",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 12, color: Colors.black54),
+                          ),
+                        ],
                       ),
                     ),
-                    validator: (v) {
-                      if (v == null || v.isEmpty) return 'Enter password';
-                      if (v.length < 4) return 'At least 4 characters';
-                      return null;
-                    },
                   ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: _loading ? null : _submit,
-                      style: ElevatedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                      child: _loading
-                          ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2))
-                          : Text(_isRegisterMode ? 'Create account' : 'Sign in'),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () => setState(() => _isRegisterMode = !_isRegisterMode),
-                    child: Text(_isRegisterMode ? 'Already have an account? Sign in' : 'Don\'t have an account? Register'),
-                  ),
-                ]),
+
+                  const SizedBox(height: 20), // Bottom breathing space
+                ],
               ),
             ),
           ),
