@@ -26,7 +26,7 @@ class ColoringPage extends StatefulWidget {
   State<ColoringPage> createState() => _ColoringPageState();
 }
 
-class _ColoringPageState extends State<ColoringPage> {
+class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderStateMixin {
   late final SvgService _svgService;
   final PathService _pathService = PathService();
   HitTestService? _hitTestService;
@@ -43,18 +43,34 @@ class _ColoringPageState extends State<ColoringPage> {
   final GlobalKey _containerKey = GlobalKey();
   final Map<String, String> _originalFills = {};
 
-  // NEW: transformation controller for InteractiveViewer
+  // transformation controller for InteractiveViewer
   final TransformationController _transformationController = TransformationController();
+
+  // zoom state & animation controller for reset
+  bool _isZoomed = false;
+  AnimationController? _animController;
 
   @override
   void initState() {
     super.initState();
     _svgService = SvgService(assetPath: widget.assetPath);
+
+    // listen for transform changes to track zoom state (used to show/hide reset button and enable pan)
+    _transformationController.addListener(_onTransformChanged);
+
     _load();
+  }
+
+  void _onTransformChanged() {
+    final currentScale = _transformationController.value.getMaxScaleOnAxis();
+    final newIsZoomed = currentScale > 1.01; // small epsilon
+    if (newIsZoomed != _isZoomed) setState(() => _isZoomed = newIsZoomed);
   }
 
   @override
   void dispose() {
+    _transformationController.removeListener(_onTransformChanged);
+    _animController?.dispose();
     _transformationController.dispose();
     super.dispose();
   }
@@ -277,6 +293,38 @@ class _ColoringPageState extends State<ColoringPage> {
         .showSnackBar(const SnackBar(content: Text('Undone one step')));
   }
 
+  // animate reset robustly and ensure identity at end
+  void _animateResetZoom() {
+    if (_transformationController.value.isIdentity()) {
+      setState(() => _isZoomed = false);
+      return;
+    }
+
+    _animController?.dispose();
+    _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 260));
+
+    final begin = Matrix4.copy(_transformationController.value);
+    final end = Matrix4.identity();
+    final tween = Matrix4Tween(begin: begin, end: end);
+    final animation = tween.animate(CurvedAnimation(parent: _animController!, curve: Curves.easeOut));
+
+    animation.addListener(() {
+      _transformationController.value = animation.value;
+    });
+
+    _animController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        // ensure exact identity and hide reset UI
+        _transformationController.value = Matrix4.identity();
+        _animController?.dispose();
+        _animController = null;
+        setState(() => _isZoomed = false);
+      }
+    });
+
+    _animController!.forward();
+  }
+
   Widget _toolPill({
     required VoidCallback onTap,
     required IconData icon,
@@ -332,9 +380,7 @@ class _ColoringPageState extends State<ColoringPage> {
   }
 
   Widget _circleHeaderButton(
-      {required VoidCallback onTap,
-      required IconData icon,
-      required List<Color> gradient}) {
+      {required VoidCallback onTap, required IconData icon, required List<Color> gradient}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -342,14 +388,10 @@ class _ColoringPageState extends State<ColoringPage> {
         width: 56,
         height: 56,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-              colors: gradient,
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight),
+          gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
           shape: BoxShape.circle,
           boxShadow: const [
-            BoxShadow(
-                color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))
+            BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))
           ],
         ),
         child: Icon(icon, color: Colors.white, size: 28),
@@ -375,45 +417,33 @@ class _ColoringPageState extends State<ColoringPage> {
           ),
         ),
         title: const Text('Maria likes to play',
-            style: TextStyle(
-                fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
         centerTitle: true,
         leading: Padding(
           padding: const EdgeInsets.only(left: 8.0),
-          child: _circleHeaderButton(
-              onTap: () => Navigator.of(context).pop(),
-              icon: Icons.arrow_back,
-              gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]),
+          child: _circleHeaderButton(onTap: () => Navigator.of(context).pop(), icon: Icons.arrow_back, gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]),
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
-            child: _circleHeaderButton(
-                onTap: _saveProgress,
-                icon: Icons.save,
-                gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]),
+            child: _circleHeaderButton(onTap: _saveProgress, icon: Icons.save, gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]),
           )
         ],
       ),
     );
 
     if (_loading) {
-      return Scaffold(
-          appBar: header,
-          body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(appBar: header, body: const Center(child: CircularProgressIndicator()));
     }
 
     final svgString = _svgService.getSvgString() ?? '';
     if (svgString.isEmpty) {
-      return Scaffold(
-          appBar: header,
-          body: const Center(child: Text('Failed to load SVG')));
+      return Scaffold(appBar: header, body: const Center(child: Text('Failed to load SVG')));
     }
 
     const horizontalMargin = 12.0;
     final screenW = MediaQuery.of(context).size.width;
-    final effectiveWidth =
-        math.min(_viewerWidth, screenW - 2 * horizontalMargin);
+    final effectiveWidth = math.min(_viewerWidth, screenW - 2 * horizontalMargin);
 
     return Scaffold(
       appBar: header,
@@ -423,99 +453,109 @@ class _ColoringPageState extends State<ColoringPage> {
           child: Column(
             children: [
               const SizedBox(height: 12),
-
-              // Undo button neatly above canvas
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: horizontalMargin),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    GestureDetector(
-                      onTap: _undoOneStep,
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                              colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                                color: Color(0x33000000),
-                                blurRadius: 8,
-                                offset: Offset(0, 4))
-                          ],
-                        ),
-                        child: const Icon(Icons.undo, color: Colors.black87),
+                padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
+                child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  GestureDetector(
+                    onTap: _undoOneStep,
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
                       ),
+                      child: const Icon(Icons.undo, color: Colors.black87),
                     ),
-                  ],
-                ),
+                  ),
+                ]),
               ),
 
               const SizedBox(height: 8),
 
-              // SVG Canvas with InteractiveViewer (pinch to zoom + pan)
+              // Stack that contains the image container and the reset button positioned just under it (centered)
               Center(
-                child: Container(
-                  key: _containerKey,
+                child: SizedBox(
                   width: effectiveWidth,
-                  height: _viewerHeight,
-                  padding: EdgeInsets.zero,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: Colors.grey.shade200, width: 1.4),
-                    boxShadow: const [
-                      BoxShadow(
-                          color: Color(0x14000000),
-                          blurRadius: 12,
-                          offset: Offset(0, 6))
-                    ],
-                  ),
-                  // Parent GestureDetector captures taps, converts coordinates
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapUp: (details) {
-                      final box = _containerKey.currentContext
-                          ?.findRenderObject() as RenderBox?;
-                      if (box == null) return;
-
-                      // Convert global to local (container coordinates)
-                      final local =
-                          _computeLocalOffset(box, details.globalPosition);
-
-                      // Inverse-transform to scene coordinates (child local)
-                      final inv = Matrix4.copy(_transformationController.value)
-                        ..invert();
-                      final scene = MatrixUtils.transformPoint(inv, local);
-
-                      // Call existing handler: pass scene coordinates and the box size
-                      _onTapAt(scene, box.size);
-                    },
-                    child: InteractiveViewer(
-                      transformationController: _transformationController,
-                      panEnabled: false,
-                      scaleEnabled: true,
-                      minScale: 1.0,
-                      maxScale: 6.0,
-                      boundaryMargin: const EdgeInsets.all(80),
-                      child: SvgViewer(
-                        svgString: svgString,
-                        viewBox: _svgService.viewBox,
-                        showWidgetBorder: false,
+                  // height contains image height plus a small overlap area for the reset button
+                  height: _viewerHeight + 32,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Image container positioned at top
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(
+                          key: _containerKey,
+                          width: effectiveWidth,
+                          height: _viewerHeight,
+                          padding: EdgeInsets.zero,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: Colors.grey.shade200, width: 1.4),
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))
+                            ],
+                          ),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapUp: (details) {
+                              final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
+                              if (box == null) return;
+                              final local = _computeLocalOffset(box, details.globalPosition);
+                              final inv = Matrix4.copy(_transformationController.value)..invert();
+                              final scene = MatrixUtils.transformPoint(inv, local);
+                              _onTapAt(scene, box.size);
+                            },
+                            child: InteractiveViewer(
+                              transformationController: _transformationController,
+                              panEnabled: _isZoomed,
+                              scaleEnabled: true,
+                              minScale: 1.0,
+                              maxScale: 6.0,
+                              boundaryMargin: const EdgeInsets.all(80),
+                              child: SvgViewer(svgString: svgString, viewBox: _svgService.viewBox, showWidgetBorder: false),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+
+                      // Reset button: centered horizontally, positioned slightly overlapping the image bottom
+                      if (_isZoomed)
+                        Positioned(
+                          top: _viewerHeight - 20, // overlaps bottom edge of image container
+                          left: (screenW - 40) / 2, // center relative to screen (matches image center)
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              // single tap resets immediately
+                              _animateResetZoom();
+                            },
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.grey.shade300),
+                                boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 2))],
+                              ),
+                              child: const Icon(Icons.center_focus_strong, size: 18, color: Colors.black87),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
 
               const SizedBox(height: 16),
 
-              // TOOLS CARD
+              // TOOLS CARD (unchanged) - note: Eraser is the middle pill, reset button visually sits above it
               Builder(builder: (context) {
                 final pillSpacing = 8.0;
                 final totalPadding = 2 * horizontalMargin + 16;
@@ -535,25 +575,9 @@ class _ColoringPageState extends State<ColoringPage> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SizedBox(
-                          width: pillWidth,
-                          child: _toolPill(
-                            onTap: () => setState(() => _currentTool = 'color'),
-                            icon: Icons.color_lens,
-                            label: 'Color',
-                            active: _currentTool == 'color',
-                          ),
-                        ),
+                        SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'color'), icon: Icons.color_lens, label: 'Color', active: _currentTool == 'color')),
                         SizedBox(width: pillSpacing),
-                        SizedBox(
-                          width: pillWidth,
-                          child: _toolPill(
-                            onTap: () => setState(() => _currentTool = 'eraser'),
-                            icon: Icons.cleaning_services_outlined,
-                            label: 'Eraser',
-                            active: _currentTool == 'eraser',
-                          ),
-                        ),
+                        SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'eraser'), icon: Icons.cleaning_services_outlined, label: 'Eraser', active: _currentTool == 'eraser')),
                         SizedBox(width: pillSpacing),
                         SizedBox(
                           width: pillWidth,
