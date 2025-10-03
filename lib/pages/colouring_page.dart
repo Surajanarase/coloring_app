@@ -498,7 +498,7 @@ class _ColoringPageState extends State<ColoringPage> {
                     },
                     child: InteractiveViewer(
                       transformationController: _transformationController,
-                      panEnabled: true,
+                      panEnabled: false,
                       scaleEnabled: true,
                       minScale: 1.0,
                       maxScale: 6.0,
