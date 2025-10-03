@@ -2,6 +2,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:xml/xml.dart';
+
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
@@ -42,11 +43,20 @@ class _ColoringPageState extends State<ColoringPage> {
   final GlobalKey _containerKey = GlobalKey();
   final Map<String, String> _originalFills = {};
 
+  // NEW: transformation controller for InteractiveViewer
+  final TransformationController _transformationController = TransformationController();
+
   @override
   void initState() {
     super.initState();
     _svgService = SvgService(assetPath: widget.assetPath);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -118,6 +128,9 @@ class _ColoringPageState extends State<ColoringPage> {
     return containerBox.globalToLocal(globalPosition);
   }
 
+  /// Tap handler: converts the tapped point (in the widget's coordinate space)
+  /// into the SVG child local coordinates by applying the inverse of the
+  /// current InteractiveViewer transform and then calls the existing logic.
   Future<void> _onTapAt(Offset localPos, Size widgetSize) async {
     if (_hitTestService == null) return;
     final hitId = _hitTestService!.hitTest(localPos, widgetSize);
@@ -160,9 +173,9 @@ class _ColoringPageState extends State<ColoringPage> {
     try {
       return _colorService.colorToHex(c);
     } catch (_) {
-      final int r = ((c.r) * 255.0).round() & 0xff;
-      final int g = ((c.g) * 255.0).round() & 0xff;
-      final int b = ((c.b) * 255.0).round() & 0xff;
+      final int r = (c.r * 255).round() & 0xff;
+      final int g = (c.g * 255).round() & 0xff;
+      final int b = (c.b * 255).round() & 0xff;
       final rr = r.toRadixString(16).padLeft(2, '0');
       final gg = g.toRadixString(16).padLeft(2, '0');
       final bb = b.toRadixString(16).padLeft(2, '0');
@@ -445,7 +458,7 @@ class _ColoringPageState extends State<ColoringPage> {
 
               const SizedBox(height: 8),
 
-              // SVG Canvas
+              // SVG Canvas with InteractiveViewer (pinch to zoom + pan)
               Center(
                 child: Container(
                   key: _containerKey,
@@ -463,22 +476,38 @@ class _ColoringPageState extends State<ColoringPage> {
                           offset: Offset(0, 6))
                     ],
                   ),
+                  // Parent GestureDetector captures taps, converts coordinates
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTapUp: (details) {
                       final box = _containerKey.currentContext
                           ?.findRenderObject() as RenderBox?;
                       if (box == null) return;
+
+                      // Convert global to local (container coordinates)
                       final local =
                           _computeLocalOffset(box, details.globalPosition);
-                      _onTapAt(local, box.size);
+
+                      // Inverse-transform to scene coordinates (child local)
+                      final inv = Matrix4.copy(_transformationController.value)
+                        ..invert();
+                      final scene = MatrixUtils.transformPoint(inv, local);
+
+                      // Call existing handler: pass scene coordinates and the box size
+                      _onTapAt(scene, box.size);
                     },
-                    child: SvgViewer(
-                      svgString: svgString,
-                      viewBox: _svgService.viewBox,
-                      onTapAt: (local) => _onTapAt(
-                          local, const Size(_viewerWidth, _viewerHeight)),
-                      showWidgetBorder: false,
+                    child: InteractiveViewer(
+                      transformationController: _transformationController,
+                      panEnabled: true,
+                      scaleEnabled: true,
+                      minScale: 1.0,
+                      maxScale: 6.0,
+                      boundaryMargin: const EdgeInsets.all(80),
+                      child: SvgViewer(
+                        svgString: svgString,
+                        viewBox: _svgService.viewBox,
+                        showWidgetBorder: false,
+                      ),
                     ),
                   ),
                 ),
@@ -486,7 +515,7 @@ class _ColoringPageState extends State<ColoringPage> {
 
               const SizedBox(height: 16),
 
-              // TOOLS CARD (UPDATED)
+              // TOOLS CARD
               Builder(builder: (context) {
                 final pillSpacing = 8.0;
                 final totalPadding = 2 * horizontalMargin + 16;
@@ -546,7 +575,7 @@ class _ColoringPageState extends State<ColoringPage> {
 
               const SizedBox(height: 16),
 
-              // Palette (2 rows x 7)
+              // Palette
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
                 child: Container(
