@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
@@ -24,7 +25,8 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _loading = true;
   int _overall = 0;
 
-  static const String rheumaticInfoText = '''
+  // Keep the original fallback text so dialog still works if the asset isn't available.
+  static const String _fallbackRheumaticInfoText = '''
 Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
 
 Common signs:
@@ -82,6 +84,7 @@ This app is for educational/demo purposes only.
     }
   }
 
+  /// Discover all SVG asset paths from AssetManifest and seed DB rows/paths for each.
   Future<void> discoverAndSeedSvgs() async {
     try {
       final manifestJson = await rootBundle.loadString('AssetManifest.json');
@@ -92,18 +95,23 @@ This app is for educational/demo purposes only.
         ..sort();
 
       for (final asset in svgAssets) {
-        final svgService = SvgService(assetPath: asset);
-        await svgService.load();
+        try {
+          final svgService = SvgService(assetPath: asset);
+          await svgService.load();
 
-        if (svgService.doc == null) continue;
+          if (svgService.doc == null) continue;
 
-        final tmpPathService = PathService();
-        tmpPathService.buildPathsFromDoc(svgService.doc!);
-        final pathCount = tmpPathService.paths.length;
-        final title = _titleFromAsset(asset);
+          final tmpPathService = PathService();
+          tmpPathService.buildPathsFromDoc(svgService.doc!);
+          final pathCount = tmpPathService.paths.length;
+          final title = _titleFromAsset(asset);
 
-        await _db.upsertImage(asset, title, pathCount);
-        await _db.insertPathsForImage(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
+          await _db.upsertImage(asset, title, pathCount);
+          await _db.insertPathsForImage(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
+        } catch (e, st) {
+          debugPrint('[discoverAndSeedSvgs: asset error] $asset -> $e\n$st');
+          // continue to next asset
+        }
       }
     } catch (e, st) {
       debugPrint('[discoverAndSeedSvgs error] $e\n$st');
@@ -141,6 +149,7 @@ This app is for educational/demo purposes only.
           padding: const EdgeInsets.all(12.0),
           child: Row(
             children: [
+              // Thumbnail: load svg asset as thumbnail. Fallback to placeholder if error.
               Container(
                 width: 72,
                 height: 72,
@@ -149,7 +158,21 @@ This app is for educational/demo purposes only.
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey.shade300),
                 ),
-                child: const Center(child: Text('🎨', style: TextStyle(fontSize: 32))),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Builder(builder: (ctx) {
+                    try {
+                      return SvgPicture.asset(
+                        id,
+                        fit: BoxFit.cover,
+                        placeholderBuilder: (_) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      );
+                    } catch (_) {
+                      // If asset can't be loaded, show emoji fallback
+                      return const Center(child: Text('🎨', style: TextStyle(fontSize: 32)));
+                    }
+                  }),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -216,12 +239,30 @@ This app is for educational/demo purposes only.
     );
   }
 
-  void _openRheumaticInfo() {
+  /// Open dialog showing rheumatic disease info.
+  /// Tries to load docs/rheumatic-heart-disease.md from assets; falls back to the hard-coded summary.
+  Future<void> _openRheumaticInfo() async {
+    String content = _fallbackRheumaticInfoText;
+
+    try {
+      // Attempt to load the markdown file from assets/docs/
+      final md = await rootBundle.loadString('docs/rheumatic-heart-disease.md');
+      if (md.trim().isNotEmpty) content = md;
+    } catch (e, st) {
+      // If loading fails (e.g., not declared in pubspec), we keep the fallback text.
+      debugPrint('[openRheumaticInfo] failed to load docs asset: $e\n$st');
+    }
+
+    if (!mounted) return;
+
+    // Show the content in a scrollable dialog (keeps previous behaviour).
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rheumatic Disease Information'),
-        content: SingleChildScrollView(child: Text(rheumaticInfoText)),
+        content: SingleChildScrollView(
+          child: Text(content),
+        ),
         actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close'))],
       ),
     );
