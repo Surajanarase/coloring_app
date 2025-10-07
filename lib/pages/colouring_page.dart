@@ -50,6 +50,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   bool _isZoomed = false;
   AnimationController? _animController;
 
+  // store original svg string (used for reliable clear)
+  String? _originalSvgString;
+
   @override
   void initState() {
     super.initState();
@@ -75,22 +78,49 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     super.dispose();
   }
 
+  /// Load SVG, compute path areas, seed DB rows & apply previously saved colors.
   Future<void> _load() async {
     await _svgService.load();
 
+    // store original svg string immediately after load so we can restore it on clear
+    _originalSvgString = _svgService.getSvgString();
+
     if (_svgService.doc != null) {
+      // Build initial paths/hit-test to ensure path IDs exist
       _buildPathsAndHitTest();
 
       final imageId = widget.assetPath;
-      final pathIds = _pathService.paths.keys.map((k) => k.toString()).toList();
-      await _db.upsertImage(
-          imageId, widget.title ?? imageId.split('/').last, pathIds.length);
-      await _db.insertPathsForImage(imageId, pathIds);
 
-      for (final pid in pathIds) {
+      // Build a temporary PathService from the loaded document to compute path areas
+      final tmpPathService = PathService();
+      tmpPathService.buildPathsFromDoc(_svgService.doc!);
+
+      // Build a map of path id -> bounding-box area (approximation)
+      final Map<String, double> pathAreas = {};
+      for (final pid in tmpPathService.paths.keys) {
+        try {
+          final bounds = tmpPathService.paths[pid]!.getBounds();
+          final area = (bounds.width * bounds.height).isFinite ? (bounds.width * bounds.height) : 0.0;
+          pathAreas[pid] = area;
+        } catch (_) {
+          pathAreas[pid] = 0.0;
+        }
+      }
+
+      final pathIdsList = tmpPathService.paths.keys.map((k) => k.toString()).toList();
+      final pathCount = pathIdsList.length;
+      final totalArea = pathAreas.values.fold<double>(0.0, (a, b) => a + b);
+
+      // Upsert image with total area and insert paths with individual areas.
+      await _db.upsertImage(imageId, widget.title ?? imageId.split('/').last, pathCount, totalArea: totalArea);
+      await _db.insertPathsForImage(imageId, pathAreas);
+
+      // Save original fills for restoration/eraser behavior
+      for (final pid in pathIdsList) {
         _originalFills[pid] = _getOriginalFillForElement(pid);
       }
 
+      // Apply any previously stored colors (from DB) to the SVG so the viewer shows progress
       final coloredRows = await _db.getColoredPathsForImage(imageId);
       for (final row in coloredRows) {
         final pid = row['id'] as String;
@@ -100,6 +130,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         }
       }
 
+      // Rebuild paths & hit test after applying colors
       _buildPathsAndHitTest();
     }
 
@@ -109,8 +140,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
   void _buildPathsAndHitTest() {
     _pathService.buildPathsFromDoc(_svgService.doc!);
-    _hitTestService =
-        HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
+    _hitTestService = HitTestService(paths: _pathService.paths, viewBox: _svgService.viewBox);
   }
 
   String _getOriginalFillForElement(String id) {
@@ -154,8 +184,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     if (_currentTool == 'color' && _selectedColor == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pick a color first!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a color first!')));
       return;
     }
 
@@ -189,9 +218,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     try {
       return _colorService.colorToHex(c);
     } catch (_) {
-      final int r = (c.r * 255).round() & 0xff;
-      final int g = (c.g * 255).round() & 0xff;
-      final int b = (c.b * 255).round() & 0xff;
+      // Use component accessors (r,g,b are 0..1) per analyzer guidance
+      final int r = (c.r * 255.0).round() & 0xFF;
+      final int g = (c.g * 255.0).round() & 0xFF;
+      final int b = (c.b * 255.0).round() & 0xFF;
       final rr = r.toRadixString(16).padLeft(2, '0');
       final gg = g.toRadixString(16).padLeft(2, '0');
       final bb = b.toRadixString(16).padLeft(2, '0');
@@ -207,30 +237,49 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     });
   }
 
-  // This is referenced by the Clear tool pill
+  // This is referenced by the Clear tool pill.
+  // Updated to reliably restore original SVG state and DB state.
   Future<void> _clearCanvasAll() async {
     if (_svgService.doc == null) return;
     _tryPushSnapshot(_svgService.getSvgString());
 
-    final allIds = _pathService.paths.keys.map((k) => k.toString()).toList();
-    for (final pid in allIds) {
-      final orig = _originalFills[pid] ?? 'none';
-      _svgService.applyFillToElementById(pid, orig);
-      await _db.markPathUncolored(pid);
+    final imageId = widget.assetPath;
+
+    // Reset DB: mark all paths uncolored for this image
+    try {
+      await _db.resetImageProgress(imageId);
+    } catch (e, st) {
+      debugPrint('Error resetting DB progress: $e\n$st');
     }
 
-    _buildPathsAndHitTest();
+    // Restore original SVG string (guarantees we remove any applied fills/styles)
+    if (_originalSvgString != null) {
+      _svgService.setSvgString(_originalSvgString!); // safe non-null assertion since checked
+    } else {
+      // fallback: rebuild by reloading asset
+      try {
+        await _svgService.load();
+      } catch (_) {}
+    }
+
+    // Rebuild paths/hit-test and reload original fills map
+    if (_svgService.doc != null) {
+      _buildPathsAndHitTest();
+
+      _originalFills.clear();
+      for (final pid in _pathService.paths.keys) {
+        _originalFills[pid] = _getOriginalFillForElement(pid);
+      }
+    }
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Canvas cleared')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Canvas cleared')));
   }
 
   Future<void> _saveProgress() async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Saved! 🎉')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved! 🎉')));
     Navigator.of(context).pop();
   }
 
@@ -247,10 +296,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       } else {
         final style = elem.getAttribute('style');
         if (style != null && style.trim().isNotEmpty) {
-          final entries = style
-              .split(';')
-              .map((s) => s.trim())
-              .where((s) => s.isNotEmpty);
+          final entries = style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty);
           for (final entry in entries) {
             if (entry.startsWith('fill:')) {
               fill = entry.substring('fill:'.length).trim();
@@ -277,8 +323,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     if (xml == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Nothing to undo')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing to undo')));
       return;
     }
 
@@ -289,8 +334,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Undone one step')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Undone one step')));
   }
 
   // animate reset robustly and ensure identity at end
@@ -339,13 +383,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         decoration: BoxDecoration(
           color: active ? const Color(0xFFFFFBED) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: active ? Colors.deepPurple : Colors.grey.shade300,
-              width: active ? 1.8 : 1.0),
-          boxShadow: const [
-            BoxShadow(
-                color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))
-          ],
+          border: Border.all(color: active ? Colors.deepPurple : Colors.grey.shade300, width: active ? 1.8 : 1.0),
+          boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -357,18 +396,13 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                 color: active ? Colors.deepPurple : Colors.grey.shade100,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon,
-                  size: 18, color: active ? Colors.white : Colors.black54),
+              child: Icon(icon, size: 18, color: active ? Colors.white : Colors.black54),
             ),
             const SizedBox(width: 10),
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: active ? Colors.deepPurple : Colors.black87,
-                ),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: active ? Colors.deepPurple : Colors.black87),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -379,8 +413,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     );
   }
 
-  Widget _circleHeaderButton(
-      {required VoidCallback onTap, required IconData icon, required List<Color> gradient}) {
+  Widget _circleHeaderButton({required VoidCallback onTap, required IconData icon, required List<Color> gradient}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -390,9 +423,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         decoration: BoxDecoration(
           gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
           shape: BoxShape.circle,
-          boxShadow: const [
-            BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))
-          ],
+          boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
         ),
         child: Icon(icon, color: Colors.white, size: 28),
       ),
@@ -408,16 +439,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         elevation: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFFFE8F2), Color(0xFFE8F7FF), Color(0xFFEFF7EE)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            gradient: LinearGradient(colors: [Color(0xFFFFE8F2), Color(0xFFE8F7FF), Color(0xFFEFF7EE)], begin: Alignment.topLeft, end: Alignment.bottomRight),
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
           ),
         ),
-        title: const Text('Maria likes to play',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
+        title: Text(widget.title ?? widget.assetPath.split('/').last, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
         centerTitle: true,
         leading: Padding(
           padding: const EdgeInsets.only(left: 8.0),
@@ -474,16 +500,13 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
               const SizedBox(height: 8),
 
-              // Stack that contains the image container and the reset button positioned just under it (centered)
               Center(
                 child: SizedBox(
                   width: effectiveWidth,
-                  // height contains image height plus a small overlap area for the reset button
                   height: _viewerHeight + 32,
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      // Image container positioned at top
                       Positioned(
                         top: 0,
                         left: 0,
@@ -497,9 +520,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(18),
                             border: Border.all(color: Colors.grey.shade200, width: 1.4),
-                            boxShadow: const [
-                              BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))
-                            ],
+                            boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
                           ),
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
@@ -524,15 +545,13 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                         ),
                       ),
 
-                      // Reset button: centered horizontally, positioned slightly overlapping the image bottom
                       if (_isZoomed)
                         Positioned(
-                          top: _viewerHeight - 20, // overlaps bottom edge of image container
-                          left: (screenW - 40) / 2, // center relative to screen (matches image center)
+                          top: _viewerHeight - 20,
+                          left: (screenW - 40) / 2,
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: () {
-                              // single tap resets immediately
                               _animateResetZoom();
                             },
                             child: Container(
@@ -555,7 +574,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
               const SizedBox(height: 16),
 
-              // TOOLS CARD (unchanged) - note: Eraser is the middle pill, reset button visually sits above it
               Builder(builder: (context) {
                 final pillSpacing = 8.0;
                 final totalPadding = 2 * horizontalMargin + 16;
@@ -599,7 +617,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
               const SizedBox(height: 16),
 
-              // Palette
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
                 child: Container(
@@ -628,9 +645,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                             duration: const Duration(milliseconds: 160),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              boxShadow: isSelected
-                                  ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))]
-                                  : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
+                              boxShadow: isSelected ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0,4))] : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
                               border: Border.all(color: isSelected ? Colors.deepPurple : Colors.grey.shade200, width: isSelected ? 3.0 : 1.0),
                             ),
                             child: ClipOval(child: Container(color: c)),

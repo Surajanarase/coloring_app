@@ -1,4 +1,6 @@
+// Full file: lib/pages/dashboard_page.dart
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -24,9 +26,11 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _loading = true;
   int _overall = 0;
 
-  /// derived unlocked state corresponding to `_rows` order
-  /// true means the row is tappable/openable, false means dimmed/locked
+  /// unlocked states for each row in _rows
   List<bool> _unlocked = [];
+
+  /// percent threshold to unlock the next image (prev percent >= this).
+  static const int _unlockThreshold = 90;
 
   static const String _fallbackRheumaticInfoText = '''
 Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
@@ -78,17 +82,12 @@ This app is for educational/demo purposes only.
       if (!mounted) return;
       setState(() => _rows = rows);
 
-      // compute overall
-      final totalProgress = _rows.fold<int>(0, (sum, row) {
-        final total = (row['total_paths'] as int?) ?? 0;
-        final colored = (row['colored'] as int?) ?? 0;
-        final percent = total == 0 ? 0 : ((colored / total) * 100).round();
-        return sum + percent;
-      });
+      // compute overall by area-weighted average (sum colored_area / sum total_area)
+      final totalAreaSum = _rows.fold<double>(0.0, (acc, r) => acc + ((r['total_area'] as num?)?.toDouble() ?? 0.0));
+      final coloredAreaSum = _rows.fold<double>(0.0, (acc, r) => acc + ((r['colored_area'] as num?)?.toDouble() ?? 0.0));
+      _overall = totalAreaSum == 0 ? 0 : (coloredAreaSum / totalAreaSum * 100).round();
 
-      _overall = _rows.isNotEmpty ? (totalProgress / _rows.length).round() : 0;
-
-      // compute unlocked gating: first unlocked always, each next unlocked only if previous percent >= 90
+      // compute unlocked states (now uses display percent)
       _computeUnlockedStates();
     } catch (e, st) {
       debugPrint('Error loading dashboard rows: $e\n$st');
@@ -96,17 +95,36 @@ This app is for educational/demo purposes only.
     if (mounted) setState(() => _loading = false);
   }
 
+  /// Option A: compute unlocked states using the same perceptual/display percent
+  /// that `_buildRow` uses, so what the user sees is what unlocks the next item.
   void _computeUnlockedStates() {
     _unlocked = List<bool>.filled(_rows.length, false);
     if (_rows.isEmpty) return;
-    // first one always unlocked
     _unlocked[0] = true;
+
+    // keep these values in sync with the display scaling in _buildRow
+    const double gamma = 0.28;
+    const double autoCompleteRawThreshold = 95.0;
+    const double smallNudgeMinimum = 10.0;
+
     for (var i = 1; i < _rows.length; i++) {
       final prev = _rows[i - 1];
-      final prevTotal = (prev['total_paths'] as int?) ?? 0;
-      final prevColored = (prev['colored'] as int?) ?? 0;
-      final prevPercent = prevTotal == 0 ? 0 : ((prevColored / prevTotal) * 100).round();
-      if (_unlocked[i - 1] && prevPercent >= 90) {
+      final prevTotalArea = (prev['total_area'] as num?)?.toDouble() ?? 0.0;
+      final prevColoredArea = (prev['colored_area'] as num?)?.toDouble() ?? 0.0;
+      final prevRawPercent = prevTotalArea == 0 ? 0.0 : (prevColoredArea / prevTotalArea * 100.0);
+
+      // compute display percent for previous row using same rules as _buildRow
+      final double scaled = math.pow((prevRawPercent.clamp(0.0, 100.0) / 100.0), gamma) * 100.0;
+      double displayDouble;
+      if (prevRawPercent >= autoCompleteRawThreshold) {
+        displayDouble = 100.0;
+      } else {
+        displayDouble = scaled;
+      }
+      if (prevRawPercent > 0 && displayDouble < smallNudgeMinimum) displayDouble = displayDouble + smallNudgeMinimum;
+      final prevDisplayPercent = displayDouble.round().clamp(0, 100);
+
+      if (_unlocked[i - 1] && prevDisplayPercent >= _unlockThreshold) {
         _unlocked[i] = true;
       } else {
         _unlocked[i] = false;
@@ -145,14 +163,22 @@ This app is for educational/demo purposes only.
 
           final tmpPathService = PathService();
           tmpPathService.buildPathsFromDoc(svgService.doc!);
-          final pathCount = tmpPathService.paths.length;
+
+          // compute per-path area (bounding-box area approximation)
+          final Map<String, double> pathAreas = {};
+          for (final pid in tmpPathService.paths.keys) {
+            final bounds = tmpPathService.paths[pid]!.getBounds();
+            final area = bounds.width * bounds.height;
+            pathAreas[pid] = area;
+          }
+          final pathCount = pathAreas.length;
+          final totalArea = pathAreas.values.fold<double>(0.0, (a, b) => a + b);
           final title = _titleFromAsset(asset);
 
-          await _db.upsertImage(asset, title, pathCount);
-          await _db.insertPathsForImage(
-              asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
+          await _db.upsertImage(asset, title, pathCount, totalArea: totalArea);
+          await _db.insertPathsForImage(asset, pathAreas);
 
-          debugPrint('[discoverAndSeedSvgs] seeded: $asset (paths: $pathCount)');
+          debugPrint('[discoverAndSeedSvgs] seeded: $asset (paths: $pathCount, totalArea=${totalArea.toStringAsFixed(2)})');
         } catch (e, st) {
           debugPrint('[discoverAndSeedSvgs: asset error] $asset -> $e\n$st');
         }
@@ -162,7 +188,6 @@ This app is for educational/demo purposes only.
     }
   }
 
-  // titles mapping as requested
   String _titleFromAsset(String asset) {
     const Map<int, String> titles = {
       1: 'Maria likes to play',
@@ -200,7 +225,6 @@ This app is for educational/demo purposes only.
     return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
-  // helper: pill color by percent ranges
   Color _paddedPercentColor(int percent) {
     if (percent <= 20) return Colors.red;
     if (percent <= 50) return Colors.blue;
@@ -211,30 +235,48 @@ This app is for educational/demo purposes only.
   Widget _buildRow(Map<String, dynamic> row, int index) {
     final id = row['id'] as String;
     final title = (row['title'] as String?) ?? id;
-    final total = (row['total_paths'] as int?) ?? 0;
-    final colored = (row['colored'] as int?) ?? 0;
-    final percent = total == 0 ? 0 : ((colored / total) * 100).round();
+    final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
+    final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+    // raw percent (area-based)
+    final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
+
+    // --- perceptual rescaling (tunable) ---
+    // gamma < 1 boosts mid/low values so they look more "filled" to the eye.
+    // Lower gamma => stronger boost. 0.28 gives a stronger boost than 0.35.
+    const double gamma = 0.28;
+
+    // map rawPercent (0..100) to scaledPercent (0..100)
+    final double scaled = math.pow((rawPercent.clamp(0.0, 100.0) / 100.0), gamma) * 100.0;
+
+    // small remainder rule: if nearly complete, show 100% (avoid tiny leftovers looking unfinished)
+    // If rawPercent >= 95% treat as complete for display purposes
+    double displayDouble;
+    if (rawPercent >= 95.0) {
+      displayDouble = 100.0;
+    } else {
+      displayDouble = scaled;
+    }
+
+    // Stronger visual nudge for small rawPercent so initial coloring looks more visible
+    if (rawPercent > 0 && displayDouble < 10) displayDouble = displayDouble + 10;
+
+    final displayPercent = displayDouble.round().clamp(0, 100);
+
 
     final unlocked = (index < _unlocked.length) ? _unlocked[index] : (index == 0);
-
-    // dim locked rows
     final rowOpacity = unlocked ? 1.0 : 0.45;
-
-    // pill color by percent
-    final pillColor = _paddedPercentColor(percent);
+    final pillColor = _paddedPercentColor(displayPercent);
 
     return Opacity(
       opacity: rowOpacity,
       child: GestureDetector(
         onTap: unlocked
             ? () async {
-                // open only if unlocked
                 await Navigator.of(context).push(
                   MaterialPageRoute(
                       builder: (_) =>
                           ColoringPage(assetPath: id, title: title, username: widget.username)),
                 );
-                // reload rows and recompute unlocked states after returning
                 await _loadRows();
               }
             : null,
@@ -287,30 +329,28 @@ This app is for educational/demo purposes only.
                               borderRadius: BorderRadius.circular(20),
                               color: pillColor,
                             ),
-                            child: Text('$percent%',
+                            child: Text('$displayPercent%',
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       LinearProgressIndicator(
-                        value: total == 0 ? 0 : (colored / total),
+                        value: totalArea == 0 ? 0 : (coloredArea / totalArea),
                         minHeight: 8,
                         backgroundColor: Colors.grey.shade200,
                         color: Colors.teal,
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        total == 0
-                            ? 'Not started • Tap to open'
-                            : (percent < 100 ? 'In progress • Tap to continue' : 'Completed • Tap to view'),
+                        totalArea == 0 ? 'Not started • Tap to open' : (displayPercent < 100 ? 'In progress • Tap to continue' : 'Completed • Tap to view'),
                         style: TextStyle(color: Colors.grey.shade700),
                       )
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                // 3-dot menu removed per request (no reset functionality)
+                // 3-dot menu removed
               ],
             ),
           ),
