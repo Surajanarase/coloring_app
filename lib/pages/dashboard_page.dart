@@ -1,4 +1,3 @@
-// lib/pages/dashboard_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -25,7 +24,6 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _loading = true;
   int _overall = 0;
 
-  // Keep the original fallback text so dialog still works if the asset isn't available.
   static const String _fallbackRheumaticInfoText = '''
 Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
 
@@ -50,22 +48,15 @@ This app is for educational/demo purposes only.
     await _debugPrintAssetManifest();
     await discoverAndSeedSvgs();
     await _loadRows();
-    // optional: debug DB contents
     await _db.debugDumpImages();
   }
 
   Future<void> _loadRows() async {
     setState(() => _loading = true);
     try {
-      // get rows from DB (may be a read-only list from sqflite)
       final originalRows = await _db.getDashboardRows();
-
-      // Make a mutable copy so we can sort it
       final rows = List<Map<String, dynamic>>.from(originalRows);
 
-      debugPrint('[loadRows] got ${rows.length} rows from DB');
-
-      // Sort rows by first numeric token in basename (if present), otherwise alphabetical
       rows.sort((a, b) {
         final idAFull = (a['id'] as String?) ?? '';
         final idBFull = (b['id'] as String?) ?? '';
@@ -79,8 +70,6 @@ This app is for educational/demo purposes only.
         if (numA != numB) return numA.compareTo(numB);
         return baseA.toLowerCase().compareTo(baseB.toLowerCase());
       });
-
-      debugPrint('[loadRows] after sort, first 5 ids: ${rows.take(5).map((r) => r['id']).toList()}');
 
       if (!mounted) return;
       setState(() => _rows = rows);
@@ -103,14 +92,15 @@ This app is for educational/demo purposes only.
     try {
       final manifest = await rootBundle.loadString('AssetManifest.json');
       final Map<String, dynamic> map = json.decode(manifest) as Map<String, dynamic>;
-      final svgs = map.keys.where((k) => k.startsWith('assets/svgs/') && k.toLowerCase().endsWith('.svg')).toList();
+      final svgs = map.keys
+          .where((k) => k.startsWith('assets/svgs/') && k.toLowerCase().endsWith('.svg'))
+          .toList();
       debugPrint('[manifest svgs] ${svgs.join(", ")}');
     } catch (e, st) {
       debugPrint('[manifest error] $e\n$st');
     }
   }
 
-  /// Discover all SVG asset paths from AssetManifest and seed DB rows/paths for each.
   Future<void> discoverAndSeedSvgs() async {
     try {
       final manifestJson = await rootBundle.loadString('AssetManifest.json');
@@ -133,12 +123,12 @@ This app is for educational/demo purposes only.
           final title = _titleFromAsset(asset);
 
           await _db.upsertImage(asset, title, pathCount);
-          await _db.insertPathsForImage(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
+          await _db.insertPathsForImage(
+              asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
 
           debugPrint('[discoverAndSeedSvgs] seeded: $asset (paths: $pathCount)');
         } catch (e, st) {
           debugPrint('[discoverAndSeedSvgs: asset error] $asset -> $e\n$st');
-          // continue to next asset
         }
       }
     } catch (e, st) {
@@ -146,10 +136,42 @@ This app is for educational/demo purposes only.
     }
   }
 
+  // ✅ UPDATED FUNCTION BELOW
   String _titleFromAsset(String asset) {
+    const Map<int, String> titles = {
+      1: 'Maria likes to play',
+      2: 'Maria has a sore throat',
+      3: 'Maria go to a health clinic',
+      4: 'Parents decided to give a home remedy',
+      5: 'Maria feels sick again',
+      6: 'Elbows and knees joints hurt',
+      7: 'She gets tired easily',
+      8: 'Hard for Maria to breathe',
+      10: 'May need surgery',
+      11: 'Clinic importance',
+      12: 'Home remedy is dangerous',
+      13: 'Proper clinical medicine',
+      14: 'You can grow up and healthy',
+    };
+
     final name = asset.split('/').last.replaceAll('.svg', '');
-    final words = name.replaceAll('-', ' ').replaceAll('_', ' ').split(' ');
-    return words.map((w) => w.isEmpty ? w : (w[0].toUpperCase() + w.substring(1))).join(' ');
+    final reg = RegExp(r'\d+');
+    final m = reg.firstMatch(name);
+    if (m != null) {
+      try {
+        final num = int.parse(m.group(0)!);
+        if (titles.containsKey(num)) return titles[num]!;
+      } catch (_) {}
+    }
+
+    final words = name
+        .replaceAll('-', ' ')
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .toList();
+
+    return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
   Widget _buildRow(Map<String, dynamic> row) {
@@ -162,7 +184,9 @@ This app is for educational/demo purposes only.
     return GestureDetector(
       onTap: () async {
         await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => ColoringPage(assetPath: id, title: title, username: widget.username)),
+          MaterialPageRoute(
+              builder: (_) =>
+                  ColoringPage(assetPath: id, title: title, username: widget.username)),
         );
         await _loadRows();
       },
@@ -177,7 +201,6 @@ This app is for educational/demo purposes only.
           padding: const EdgeInsets.all(12.0),
           child: Row(
             children: [
-              // Thumbnail: load svg asset as thumbnail. Fallback to placeholder if error.
               Container(
                 width: 72,
                 height: 72,
@@ -193,11 +216,12 @@ This app is for educational/demo purposes only.
                       return SvgPicture.asset(
                         id,
                         fit: BoxFit.cover,
-                        placeholderBuilder: (_) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        placeholderBuilder: (_) =>
+                            const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                       );
                     } catch (_) {
-                      // If asset can't be loaded, show emoji fallback
-                      return const Center(child: Text('🎨', style: TextStyle(fontSize: 32)));
+                      return const Center(
+                          child: Text('🎨', style: TextStyle(fontSize: 32)));
                     }
                   }),
                 ),
@@ -209,14 +233,20 @@ This app is for educational/demo purposes only.
                   children: [
                     Row(
                       children: [
-                        Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))),
+                        Expanded(
+                            child: Text(title,
+                                style: const TextStyle(fontWeight: FontWeight.w700))),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(20),
-                            gradient: const LinearGradient(colors: [Color(0xFFFF9A9E), Color(0xFFFECFEF)]),
+                            gradient: const LinearGradient(
+                                colors: [Color(0xFFFF9A9E), Color(0xFFFECFEF)]),
                           ),
-                          child: Text('$percent%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                          child: Text('$percent%',
+                              style: const TextStyle(
+                                  color: Colors.white, fontWeight: FontWeight.w700)),
                         ),
                       ],
                     ),
@@ -229,7 +259,11 @@ This app is for educational/demo purposes only.
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      total == 0 ? 'Not started • Tap to open' : (percent < 100 ? 'In progress • Tap to continue' : 'Completed • Tap to view'),
+                      total == 0
+                          ? 'Not started • Tap to open'
+                          : (percent < 100
+                              ? 'In progress • Tap to continue'
+                              : 'Completed • Tap to view'),
                       style: TextStyle(color: Colors.grey.shade700),
                     )
                   ],
@@ -243,10 +277,15 @@ This app is for educational/demo purposes only.
                       context: context,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Reset progress?'),
-                        content: const Text('This will clear all coloring for this image. Are you sure?'),
+                        content: const Text(
+                            'This will clear all coloring for this image. Are you sure?'),
                         actions: [
-                          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-                          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Reset')),
+                          TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel')),
+                          TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              child: const Text('Reset')),
                         ],
                       ),
                     );
@@ -254,11 +293,13 @@ This app is for educational/demo purposes only.
                       await _db.resetImageProgress(id);
                       await _loadRows();
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Progress reset')));
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(content: Text('Progress reset')));
                     }
                   }
                 },
-                itemBuilder: (ctx) => const [PopupMenuItem(value: 'reset', child: Text('Reset progress'))],
+                itemBuilder: (ctx) =>
+                    const [PopupMenuItem(value: 'reset', child: Text('Reset progress'))],
               )
             ],
           ),
@@ -267,31 +308,27 @@ This app is for educational/demo purposes only.
     );
   }
 
-  /// Open dialog showing rheumatic disease info.
-  /// Tries to load docs/rheumatic-heart-disease.md from assets; falls back to the hard-coded summary.
   Future<void> _openRheumaticInfo() async {
     String content = _fallbackRheumaticInfoText;
 
     try {
-      // Attempt to load the markdown file from assets/docs/
       final md = await rootBundle.loadString('docs/rheumatic-heart-disease.md');
       if (md.trim().isNotEmpty) content = md;
     } catch (e, st) {
-      // If loading fails (e.g., not declared in pubspec), we keep the fallback text.
       debugPrint('[openRheumaticInfo] failed to load docs asset: $e\n$st');
     }
 
     if (!mounted) return;
 
-    // Show the content in a scrollable dialog (keeps previous behaviour).
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rheumatic Disease Information'),
-        content: SingleChildScrollView(
-          child: Text(content),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close'))],
+        content: SingleChildScrollView(child: Text(content)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close'))
+        ],
       ),
     );
   }
@@ -303,7 +340,8 @@ This app is for educational/demo purposes only.
     );
   }
 
-  Widget _pillButton({required Widget child, required VoidCallback onPressed, required Color color}) {
+  Widget _pillButton(
+      {required Widget child, required VoidCallback onPressed, required Color color}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
       child: InkWell(
@@ -315,7 +353,9 @@ This app is for educational/demo purposes only.
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(22),
-            boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))],
+            boxShadow: const [
+              BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))
+            ],
           ),
           child: Center(child: child),
         ),
@@ -328,7 +368,8 @@ This app is for educational/demo purposes only.
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: Text('Hi, ${widget.username} 👋', style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text('Hi, ${widget.username} 👋',
+            style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
           _pillButton(
             onPressed: _logout,
@@ -337,7 +378,8 @@ This app is for educational/demo purposes only.
               children: const [
                 Icon(Icons.logout, size: 16, color: Colors.white),
                 SizedBox(width: 6),
-                Text('Logout', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                Text('Logout',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -354,7 +396,6 @@ This app is for educational/demo purposes only.
                     padding: const EdgeInsets.symmetric(horizontal: 12.0),
                     child: Column(
                       children: [
-                        // INFO PILL centered above the progress card (not floating)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -366,20 +407,26 @@ This app is for educational/demo purposes only.
                                 onTap: _openRheumaticInfo,
                                 borderRadius: BorderRadius.circular(28),
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  constraints: const BoxConstraints(minHeight: 48),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  constraints:
+                                      const BoxConstraints(minHeight: 48),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: const [
                                       CircleAvatar(
                                         backgroundColor: Color(0xFF6C4DFF),
                                         radius: 16,
-                                        child: Icon(Icons.health_and_safety, color: Colors.white, size: 18),
+                                        child: Icon(Icons.health_and_safety,
+                                            color: Colors.white, size: 18),
                                       ),
                                       SizedBox(width: 10),
-                                      Text('Rheumatic disease information', style: TextStyle(fontWeight: FontWeight.w600)),
+                                      Text('Rheumatic disease information',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w600)),
                                       SizedBox(width: 6),
-                                      Icon(Icons.chevron_right, size: 20, color: Colors.black54),
+                                      Icon(Icons.chevron_right,
+                                          size: 20, color: Colors.black54),
                                     ],
                                   ),
                                 ),
@@ -388,23 +435,33 @@ This app is for educational/demo purposes only.
                           ],
                         ),
                         const SizedBox(height: 12),
-                        // Progress card
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)]),
+                            gradient: const LinearGradient(
+                                colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)]),
                             borderRadius: BorderRadius.circular(16),
-                            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10)],
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x11000000), blurRadius: 10)
+                            ],
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              const Text('Your Progress', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                              const Text('Your Progress',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700)),
                               const SizedBox(height: 8),
-                              Text('$_overall%', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Colors.white)),
+                              Text('$_overall%',
+                                  style: const TextStyle(
+                                      fontSize: 36,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white)),
                               const SizedBox(height: 6),
-                              const Text('Keep coloring to unlock new pages!', style: TextStyle(color: Colors.white70)),
+                              const Text('Keep coloring to unlock new pages!',
+                                  style: TextStyle(color: Colors.white70)),
                             ],
                           ),
                         ),
@@ -416,14 +473,20 @@ This app is for educational/demo purposes only.
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0),
                       child: Card(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                         child: Padding(
                           padding: const EdgeInsets.all(20.0),
                           child: Column(
                             children: [
-                              const Icon(Icons.info_outline, size: 48, color: Colors.black38),
+                              const Icon(Icons.info_outline,
+                                  size: 48, color: Colors.black38),
                               const SizedBox(height: 12),
-                              Text('No images tracked yet.\nOpen a coloring image to populate the dashboard.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
+                              Text(
+                                'No images tracked yet.\nOpen a coloring image to populate the dashboard.',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
                             ],
                           ),
                         ),
@@ -438,7 +501,6 @@ This app is for educational/demo purposes only.
     );
   }
 
-  // Helper: return file basename without extension for an asset path like "assets/svgs/01_name.svg"
   String _basenameWithoutExtension(String assetPath) {
     final parts = assetPath.split('/');
     final filename = parts.isNotEmpty ? parts.last : assetPath;
@@ -446,7 +508,6 @@ This app is for educational/demo purposes only.
     return dot >= 0 ? filename.substring(0, dot) : filename;
   }
 
-  // Helper: find first continuous digits in a string and return as int, or null if none.
   int? _firstNumberInString(String s) {
     final reg = RegExp(r'\d+');
     final m = reg.firstMatch(s);
