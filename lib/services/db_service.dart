@@ -1,6 +1,8 @@
 // lib/services/db_service.dart
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
+import 'package:flutter/foundation.dart';
+
 
 class DbService {
   static final DbService _instance = DbService._internal();
@@ -8,6 +10,9 @@ class DbService {
   DbService._internal();
 
   Database? _db;
+
+  // Bump version to force onUpgrade during development; increment further for later upgrades.
+  static const int _dbVersion = 2;
 
   Future<Database> get db async {
     if (_db != null) return _db!;
@@ -20,36 +25,51 @@ class DbService {
     final path = p.join(databasesPath, 'coloring_app.db');
     return openDatabase(
       path,
-      version: 1,
+      version: _dbVersion,
       onCreate: (db, version) async {
-        // users table for username/password auth
-        await db.execute('''
-          CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE images (
-            id TEXT PRIMARY KEY,
-            title TEXT,
-            total_paths INTEGER
-          )
-        ''');
-
-        await db.execute('''
-          CREATE TABLE paths (
-            id TEXT PRIMARY KEY,
-            image_id TEXT,
-            is_colored INTEGER DEFAULT 0,
-            color TEXT,
-            FOREIGN KEY(image_id) REFERENCES images(id)
-          )
-        ''');
+        await _createSchema(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        // Simple development-friendly upgrade: drop and recreate schema.
+        // NOTE: this will remove existing user coloring progress.
+        // For production, implement a careful migration instead.
+        try {
+          await db.execute('DROP TABLE IF EXISTS paths');
+          await db.execute('DROP TABLE IF EXISTS images');
+          await db.execute('DROP TABLE IF EXISTS users');
+        } catch (_) {}
+        await _createSchema(db);
       },
     );
+  }
+
+  Future<void> _createSchema(Database db) async {
+    // users table for username/password auth
+    await db.execute('''
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE images (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        total_paths INTEGER
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE paths (
+        id TEXT PRIMARY KEY,
+        image_id TEXT,
+        is_colored INTEGER DEFAULT 0,
+        color TEXT,
+        FOREIGN KEY(image_id) REFERENCES images(id)
+      )
+    ''');
   }
 
   // -----------------------
@@ -160,13 +180,14 @@ class DbService {
     return result ?? 0;
   }
 
+  /// Return dashboard rows. Order by id so asset path ordering is preserved.
   Future<List<Map<String, dynamic>>> getDashboardRows() async {
     final database = await db;
     final rows = await database.rawQuery('''
       SELECT i.id, i.title, i.total_paths,
         (SELECT COUNT(*) FROM paths p WHERE p.image_id = i.id AND p.is_colored = 1) AS colored
       FROM images i
-      ORDER BY i.title
+      ORDER BY i.id
     ''');
     return rows;
   }
@@ -187,5 +208,25 @@ class DbService {
       where: 'image_id = ?',
       whereArgs: [imageId],
     );
+  }
+
+  // -----------------------
+  // Debug / helpers
+  // -----------------------
+
+  /// Debug helper to print all images & counts currently in DB (useful when troubleshooting).
+  Future<void> debugDumpImages() async {
+    final database = await db;
+    final images = await database.query('images');
+    debugPrint('[DbService] images count = ${images.length}');
+    for (var i = 0; i < images.length; i++) {
+      final im = images[i];
+      final colored = Sqflite.firstIntValue(await database.rawQuery(
+        'SELECT COUNT(*) FROM paths WHERE image_id = ? AND is_colored = 1',
+        [im['id']],
+      )) ?? 0;
+      final total = im['total_paths'] ?? 0;
+      debugPrint('[DbService] image[$i] id=${im['id']} title=${im['title']} colored=$colored total=$total');
+    }
   }
 }

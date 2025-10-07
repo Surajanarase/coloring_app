@@ -2,13 +2,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
 import 'colouring_page.dart';
 import '../auth/login_screen.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // used for thumbnails
 
 class DashboardPage extends StatefulWidget {
   final String username;
@@ -50,14 +50,40 @@ This app is for educational/demo purposes only.
     await _debugPrintAssetManifest();
     await discoverAndSeedSvgs();
     await _loadRows();
+    // optional: debug DB contents
+    await _db.debugDumpImages();
   }
 
   Future<void> _loadRows() async {
     setState(() => _loading = true);
     try {
-      final r = await _db.getDashboardRows();
+      // get rows from DB (may be a read-only list from sqflite)
+      final originalRows = await _db.getDashboardRows();
+
+      // Make a mutable copy so we can sort it
+      final rows = List<Map<String, dynamic>>.from(originalRows);
+
+      debugPrint('[loadRows] got ${rows.length} rows from DB');
+
+      // Sort rows by first numeric token in basename (if present), otherwise alphabetical
+      rows.sort((a, b) {
+        final idAFull = (a['id'] as String?) ?? '';
+        final idBFull = (b['id'] as String?) ?? '';
+
+        final baseA = _basenameWithoutExtension(idAFull);
+        final baseB = _basenameWithoutExtension(idBFull);
+
+        final numA = _firstNumberInString(baseA) ?? 999999;
+        final numB = _firstNumberInString(baseB) ?? 999999;
+
+        if (numA != numB) return numA.compareTo(numB);
+        return baseA.toLowerCase().compareTo(baseB.toLowerCase());
+      });
+
+      debugPrint('[loadRows] after sort, first 5 ids: ${rows.take(5).map((r) => r['id']).toList()}');
+
       if (!mounted) return;
-      setState(() => _rows = r);
+      setState(() => _rows = rows);
 
       final totalProgress = _rows.fold<int>(0, (sum, row) {
         final total = (row['total_paths'] as int?) ?? 0;
@@ -108,6 +134,8 @@ This app is for educational/demo purposes only.
 
           await _db.upsertImage(asset, title, pathCount);
           await _db.insertPathsForImage(asset, tmpPathService.paths.keys.map((k) => k.toString()).toList());
+
+          debugPrint('[discoverAndSeedSvgs] seeded: $asset (paths: $pathCount)');
         } catch (e, st) {
           debugPrint('[discoverAndSeedSvgs: asset error] $asset -> $e\n$st');
           // continue to next asset
@@ -408,5 +436,25 @@ This app is for educational/demo purposes only.
               ),
       ),
     );
+  }
+
+  // Helper: return file basename without extension for an asset path like "assets/svgs/01_name.svg"
+  String _basenameWithoutExtension(String assetPath) {
+    final parts = assetPath.split('/');
+    final filename = parts.isNotEmpty ? parts.last : assetPath;
+    final dot = filename.lastIndexOf('.');
+    return dot >= 0 ? filename.substring(0, dot) : filename;
+  }
+
+  // Helper: find first continuous digits in a string and return as int, or null if none.
+  int? _firstNumberInString(String s) {
+    final reg = RegExp(r'\d+');
+    final m = reg.firstMatch(s);
+    if (m == null) return null;
+    try {
+      return int.parse(m.group(0)!);
+    } catch (_) {
+      return null;
+    }
   }
 }
