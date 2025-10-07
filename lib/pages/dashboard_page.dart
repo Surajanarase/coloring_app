@@ -24,6 +24,10 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _loading = true;
   int _overall = 0;
 
+  /// derived unlocked state corresponding to `_rows` order
+  /// true means the row is tappable/openable, false means dimmed/locked
+  List<bool> _unlocked = [];
+
   static const String _fallbackRheumaticInfoText = '''
 Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
 
@@ -74,6 +78,7 @@ This app is for educational/demo purposes only.
       if (!mounted) return;
       setState(() => _rows = rows);
 
+      // compute overall
       final totalProgress = _rows.fold<int>(0, (sum, row) {
         final total = (row['total_paths'] as int?) ?? 0;
         final colored = (row['colored'] as int?) ?? 0;
@@ -82,10 +87,31 @@ This app is for educational/demo purposes only.
       });
 
       _overall = _rows.isNotEmpty ? (totalProgress / _rows.length).round() : 0;
+
+      // compute unlocked gating: first unlocked always, each next unlocked only if previous percent >= 90
+      _computeUnlockedStates();
     } catch (e, st) {
       debugPrint('Error loading dashboard rows: $e\n$st');
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  void _computeUnlockedStates() {
+    _unlocked = List<bool>.filled(_rows.length, false);
+    if (_rows.isEmpty) return;
+    // first one always unlocked
+    _unlocked[0] = true;
+    for (var i = 1; i < _rows.length; i++) {
+      final prev = _rows[i - 1];
+      final prevTotal = (prev['total_paths'] as int?) ?? 0;
+      final prevColored = (prev['colored'] as int?) ?? 0;
+      final prevPercent = prevTotal == 0 ? 0 : ((prevColored / prevTotal) * 100).round();
+      if (_unlocked[i - 1] && prevPercent >= 90) {
+        _unlocked[i] = true;
+      } else {
+        _unlocked[i] = false;
+      }
+    }
   }
 
   Future<void> _debugPrintAssetManifest() async {
@@ -136,7 +162,7 @@ This app is for educational/demo purposes only.
     }
   }
 
-  // ✅ UPDATED FUNCTION BELOW
+  // titles mapping as requested
   String _titleFromAsset(String asset) {
     const Map<int, String> titles = {
       1: 'Maria likes to play',
@@ -174,134 +200,119 @@ This app is for educational/demo purposes only.
     return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
-  Widget _buildRow(Map<String, dynamic> row) {
+  // helper: pill color by percent ranges
+  Color _paddedPercentColor(int percent) {
+    if (percent <= 20) return Colors.red;
+    if (percent <= 50) return Colors.blue;
+    if (percent <= 90) return Colors.yellow.shade700;
+    return Colors.green;
+  }
+
+  Widget _buildRow(Map<String, dynamic> row, int index) {
     final id = row['id'] as String;
     final title = (row['title'] as String?) ?? id;
     final total = (row['total_paths'] as int?) ?? 0;
     final colored = (row['colored'] as int?) ?? 0;
     final percent = total == 0 ? 0 : ((colored / total) * 100).round();
 
-    return GestureDetector(
-      onTap: () async {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-              builder: (_) =>
-                  ColoringPage(assetPath: id, title: title, username: widget.username)),
-        );
-        await _loadRows();
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 8)],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
+    final unlocked = (index < _unlocked.length) ? _unlocked[index] : (index == 0);
+
+    // dim locked rows
+    final rowOpacity = unlocked ? 1.0 : 0.45;
+
+    // pill color by percent
+    final pillColor = _paddedPercentColor(percent);
+
+    return Opacity(
+      opacity: rowOpacity,
+      child: GestureDetector(
+        onTap: unlocked
+            ? () async {
+                // open only if unlocked
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          ColoringPage(assetPath: id, title: title, username: widget.username)),
+                );
+                // reload rows and recompute unlocked states after returning
+                await _loadRows();
+              }
+            : null,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 8)],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Builder(builder: (ctx) {
+                      try {
+                        return SvgPicture.asset(
+                          id,
+                          fit: BoxFit.cover,
+                          placeholderBuilder: (_) =>
+                              const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      } catch (_) {
+                        return const Center(child: Text('🎨', style: TextStyle(fontSize: 32)));
+                      }
+                    }),
+                  ),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Builder(builder: (ctx) {
-                    try {
-                      return SvgPicture.asset(
-                        id,
-                        fit: BoxFit.cover,
-                        placeholderBuilder: (_) =>
-                            const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                      );
-                    } catch (_) {
-                      return const Center(
-                          child: Text('🎨', style: TextStyle(fontSize: 32)));
-                    }
-                  }),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                            child: Text(title,
-                                style: const TextStyle(fontWeight: FontWeight.w700))),
-                        Container(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            gradient: const LinearGradient(
-                                colors: [Color(0xFFFF9A9E), Color(0xFFFECFEF)]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              color: pillColor,
+                            ),
+                            child: Text('$percent%',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                           ),
-                          child: Text('$percent%',
-                              style: const TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.w700)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: total == 0 ? 0 : (colored / total),
-                      minHeight: 8,
-                      backgroundColor: Colors.grey.shade200,
-                      color: Colors.teal,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      total == 0
-                          ? 'Not started • Tap to open'
-                          : (percent < 100
-                              ? 'In progress • Tap to continue'
-                              : 'Completed • Tap to view'),
-                      style: TextStyle(color: Colors.grey.shade700),
-                    )
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              PopupMenuButton<String>(
-                onSelected: (value) async {
-                  if (value == 'reset') {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Reset progress?'),
-                        content: const Text(
-                            'This will clear all coloring for this image. Are you sure?'),
-                        actions: [
-                          TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text('Cancel')),
-                          TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text('Reset')),
                         ],
                       ),
-                    );
-                    if (confirmed == true) {
-                      await _db.resetImageProgress(id);
-                      await _loadRows();
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('Progress reset')));
-                    }
-                  }
-                },
-                itemBuilder: (ctx) =>
-                    const [PopupMenuItem(value: 'reset', child: Text('Reset progress'))],
-              )
-            ],
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: total == 0 ? 0 : (colored / total),
+                        minHeight: 8,
+                        backgroundColor: Colors.grey.shade200,
+                        color: Colors.teal,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        total == 0
+                            ? 'Not started • Tap to open'
+                            : (percent < 100 ? 'In progress • Tap to continue' : 'Completed • Tap to view'),
+                        style: TextStyle(color: Colors.grey.shade700),
+                      )
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 3-dot menu removed per request (no reset functionality)
+              ],
+            ),
           ),
         ),
       ),
@@ -326,8 +337,7 @@ This app is for educational/demo purposes only.
         title: const Text('Rheumatic Disease Information'),
         content: SingleChildScrollView(child: Text(content)),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close'))
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close'))
         ],
       ),
     );
@@ -340,8 +350,7 @@ This app is for educational/demo purposes only.
     );
   }
 
-  Widget _pillButton(
-      {required Widget child, required VoidCallback onPressed, required Color color}) {
+  Widget _pillButton({required Widget child, required VoidCallback onPressed, required Color color}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
       child: InkWell(
@@ -353,9 +362,7 @@ This app is for educational/demo purposes only.
           decoration: BoxDecoration(
             color: color,
             borderRadius: BorderRadius.circular(22),
-            boxShadow: const [
-              BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))
-            ],
+            boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))],
           ),
           child: Center(child: child),
         ),
@@ -368,8 +375,7 @@ This app is for educational/demo purposes only.
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: Text('Hi, ${widget.username} 👋',
-            style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text('Hi, ${widget.username} 👋', style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
           _pillButton(
             onPressed: _logout,
@@ -378,8 +384,7 @@ This app is for educational/demo purposes only.
               children: const [
                 Icon(Icons.logout, size: 16, color: Colors.white),
                 SizedBox(width: 6),
-                Text('Logout',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                Text('Logout', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -407,26 +412,20 @@ This app is for educational/demo purposes only.
                                 onTap: _openRheumaticInfo,
                                 borderRadius: BorderRadius.circular(28),
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 8),
-                                  constraints:
-                                      const BoxConstraints(minHeight: 48),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  constraints: const BoxConstraints(minHeight: 48),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: const [
                                       CircleAvatar(
                                         backgroundColor: Color(0xFF6C4DFF),
                                         radius: 16,
-                                        child: Icon(Icons.health_and_safety,
-                                            color: Colors.white, size: 18),
+                                        child: Icon(Icons.health_and_safety, color: Colors.white, size: 18),
                                       ),
                                       SizedBox(width: 10),
-                                      Text('Rheumatic disease information',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.w600)),
+                                      Text('Rheumatic disease information', style: TextStyle(fontWeight: FontWeight.w600)),
                                       SizedBox(width: 6),
-                                      Icon(Icons.chevron_right,
-                                          size: 20, color: Colors.black54),
+                                      Icon(Icons.chevron_right, size: 20, color: Colors.black54),
                                     ],
                                   ),
                                 ),
@@ -439,29 +438,18 @@ This app is for educational/demo purposes only.
                           width: double.infinity,
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                                colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)]),
+                            gradient: const LinearGradient(colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)]),
                             borderRadius: BorderRadius.circular(16),
-                            boxShadow: const [
-                              BoxShadow(color: Color(0x11000000), blurRadius: 10)
-                            ],
+                            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10)],
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              const Text('Your Progress',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700)),
+                              const Text('Your Progress', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                               const SizedBox(height: 8),
-                              Text('$_overall%',
-                                  style: const TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.white)),
+                              Text('$_overall%', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: Colors.white)),
                               const SizedBox(height: 6),
-                              const Text('Keep coloring to unlock new pages!',
-                                  style: TextStyle(color: Colors.white70)),
+                              const Text('Keep coloring to unlock new pages!', style: TextStyle(color: Colors.white70)),
                             ],
                           ),
                         ),
@@ -473,27 +461,21 @@ This app is for educational/demo purposes only.
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0),
                       child: Card(
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         child: Padding(
                           padding: const EdgeInsets.all(20.0),
                           child: Column(
                             children: [
-                              const Icon(Icons.info_outline,
-                                  size: 48, color: Colors.black38),
+                              const Icon(Icons.info_outline, size: 48, color: Colors.black38),
                               const SizedBox(height: 12),
-                              Text(
-                                'No images tracked yet.\nOpen a coloring image to populate the dashboard.',
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
+                              Text('No images tracked yet.\nOpen a coloring image to populate the dashboard.', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
                             ],
                           ),
                         ),
                       ),
                     )
                   else
-                    ..._rows.map(_buildRow),
+                    ..._rows.asMap().entries.map((e) => _buildRow(e.value, e.key)),
                   const SizedBox(height: 24),
                 ],
               ),
