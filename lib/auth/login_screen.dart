@@ -44,6 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       if (_isRegisterMode) {
+        // Create new user
         final result = await _db.createUser(username, password);
 
         if (!mounted) return;
@@ -61,11 +62,15 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
 
+        // Set current user (important for per-user DB)
+        _db.setCurrentUser(username);
+
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => DashboardPage(username: username)),
         );
       } else {
+        // Login existing user
         final valid = await _db.authenticateUser(username, password);
 
         if (!mounted) return;
@@ -77,6 +82,9 @@ class _LoginScreenState extends State<LoginScreen> {
           );
           return;
         }
+
+        // Set current user (important for per-user DB)
+        _db.setCurrentUser(username);
 
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
@@ -128,12 +136,16 @@ class _LoginScreenState extends State<LoginScreen> {
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         body: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF9ABAFF), Color(0xFFECE17E), Color(0xFF8EDF79)],
+              colors: [
+                const Color(0xFF9ABAFF).withValues(alpha: 1.0),
+                const Color(0xFFECE17E).withValues(alpha: 1.0),
+                const Color(0xFF8EDF79).withValues(alpha: 1.0),
+              ],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              stops: [0.0, 0.48, 1.0],
+              stops: const [0.0, 0.48, 1.0],
             ),
           ),
           child: Center(
@@ -142,10 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Logo outside the form
                   _buildLogo(),
-
-                  // The Card with form
                   Container(
                     padding: const EdgeInsets.all(20),
                     margin: const EdgeInsets.symmetric(horizontal: 8),
@@ -160,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       borderRadius: BorderRadius.circular(18),
                       boxShadow: const [
-                        BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 6)),
+                        BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 6))
                       ],
                     ),
                     child: Form(
@@ -179,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // USERNAME
+                          // Username
                           TextFormField(
                             controller: _usernameCtrl,
                             focusNode: _usernameFocus,
@@ -193,8 +202,12 @@ class _LoginScreenState extends State<LoginScreen> {
                               prefixIcon: const Icon(Icons.person_outline),
                             ),
                             validator: (v) {
-                              if (v == null || v.trim().isEmpty) return 'Enter username';
-                              if (v.trim().length < 3) return 'At least 3 characters';
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Enter username';
+                              }
+                              if (v.trim().length < 3) {
+                                return 'At least 3 characters';
+                              }
                               return null;
                             },
                             onFieldSubmitted: (_) {
@@ -203,7 +216,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          // PASSWORD
+                          // Password
                           TextFormField(
                             controller: _passwordCtrl,
                             focusNode: _passwordFocus,
@@ -223,8 +236,12 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             validator: (v) {
-                              if (v == null || v.isEmpty) return 'Enter password';
-                              if (v.length < 4) return 'At least 4 characters';
+                              if (v == null || v.isEmpty) {
+                                return 'Enter password';
+                              }
+                              if (v.length < 4) {
+                                return 'At least 4 characters';
+                              }
                               return null;
                             },
                             onFieldSubmitted: (_) {
@@ -234,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           const SizedBox(height: 18),
 
-                          // SUBMIT BUTTON (gradient semi-transparent blue)
+                          // Submit Button
                           SizedBox(
                             width: double.infinity,
                             height: 48,
@@ -244,9 +261,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.blue.withValues(alpha: 0.3),
                                 padding: EdgeInsets.zero,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 elevation: 4,
                               ),
                               child: Ink(
@@ -287,13 +302,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           const SizedBox(height: 12),
 
-                          // Toggle register/login
+                          // Toggle Register/Login
                           TextButton(
                             onPressed: _loading ? null : _toggleMode,
                             child: Text(
-                              _isRegisterMode
-                                  ? 'Already have an account? Sign in'
-                                  : 'Don\'t have an account? Register',
+                              _isRegisterMode ? 'Already have an account? Sign in' : 'Don\'t have an account? Register',
                             ),
                           ),
 
@@ -307,8 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-
-                  const SizedBox(height: 20), // Bottom breathing space
+                  const SizedBox(height: 20),
                 ],
               ),
             ),

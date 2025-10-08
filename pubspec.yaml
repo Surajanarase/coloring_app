@@ -30,4 +30,5 @@ flutter:
     - assets/svgs/
     - assets/images/
     - assets/logo.png
+    - assets/logo2.png
     - docs/rheumatic-heart-disease.md
