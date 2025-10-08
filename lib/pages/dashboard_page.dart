@@ -376,7 +376,7 @@ This app is for educational/demo purposes only.
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(child: Text('Hi, ${widget.username} 👋', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
-              Image.asset('assets/logo2.png', height: 60, width: 60, fit: BoxFit.contain),
+              Image.asset('assets/logo2.png', height: 140, width: 140, fit: BoxFit.contain),
               Expanded(
                 child: Align(
                   alignment: Alignment.centerRight,
