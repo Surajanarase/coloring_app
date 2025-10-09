@@ -29,10 +29,9 @@ class _DashboardPageState extends State<DashboardPage> {
   List<bool> _unlocked = [];
   static const int _unlockThreshold = 90;
 
-  // Boost parameters (optional visual boost)
-  static const double _progressGamma = 0.70;
-  static const double _minVisibleProgress = 8.0;
-  static const double _eps = 0.000001; // tolerance for floating comparisons
+  static const double _progressGamma = 0.85;
+  static const double _minVisibleProgress = 5.0;
+  static const double _eps = 0.01;
 
   @override
   void initState() {
@@ -41,12 +40,16 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _init() async {
+    debugPrint('[Dashboard] ============ INITIALIZING DASHBOARD ============');
     await _debugPrintAssetManifest();
     await discoverAndSeedSvgs();
     await _loadRows();
     try {
       await _db.debugDumpImages();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[Dashboard] Debug dump failed: $e');
+    }
+    debugPrint('[Dashboard] ============ INITIALIZATION COMPLETE ============');
   }
 
   Future<void> _loadRows() async {
@@ -54,6 +57,8 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final originalRows = await _db.getDashboardRows();
       final rows = List<Map<String, dynamic>>.from(originalRows);
+
+      debugPrint('[Dashboard] Loaded ${rows.length} images from database');
 
       rows.sort((a, b) {
         final idAFull = (a['id'] as String?) ?? '';
@@ -72,17 +77,24 @@ class _DashboardPageState extends State<DashboardPage> {
       if (!mounted) return;
       setState(() => _rows = rows);
 
-      // Compute overall using area sums but clamp & handle zero-area safely
-      final totalAreaSum = _rows.fold<double>(0.0, (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0));
-      final coloredAreaSum = _rows.fold<double>(0.0, (a, r) => a + ((r['colored_area'] as num?)?.toDouble() ?? 0.0));
+      // Calculate overall progress
+      final totalAreaSum = _rows.fold<double>(
+        0.0, 
+        (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0)
+      );
+      final coloredAreaSum = _rows.fold<double>(
+        0.0, 
+        (a, r) => a + ((r['colored_area'] as num?)?.toDouble() ?? 0.0)
+      );
+      
       final overallRaw = totalAreaSum == 0 ? 0.0 : (coloredAreaSum / totalAreaSum * 100.0);
-
-      // Boost and clamp, but guarantee 100 when nearly complete
       _overall = _boostProgressPercent(overallRaw, coloredAreaSum, totalAreaSum);
+
+      debugPrint('[Dashboard] Overall progress: $_overall% (raw: ${overallRaw.toStringAsFixed(2)}%)');
 
       _computeUnlockedStates();
     } catch (e, st) {
-      debugPrint('Error loading dashboard rows: $e\n$st');
+      debugPrint('[Dashboard] Error loading rows: $e\n$st');
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -91,10 +103,13 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final manifest = await rootBundle.loadString('AssetManifest.json');
       final map = json.decode(manifest) as Map<String, dynamic>;
-      final svgs = map.keys.where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg')).toList();
-      debugPrint('[manifest svgs] ${svgs.join(", ")}');
+      final svgs = map.keys
+        .where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg'))
+        .toList()
+        ..sort();
+      debugPrint('[Dashboard] Found ${svgs.length} SVG assets: ${svgs.join(", ")}');
     } catch (e) {
-      debugPrint('[manifest error] $e');
+      debugPrint('[Dashboard] Manifest error: $e');
     }
   }
 
@@ -102,32 +117,59 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final manifest = await rootBundle.loadString('AssetManifest.json');
       final map = json.decode(manifest) as Map<String, dynamic>;
-      final svgs = map.keys.where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg')).toList()..sort();
+      final svgs = map.keys
+        .where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg'))
+        .toList()
+        ..sort();
+
+      debugPrint('[Dashboard] Seeding ${svgs.length} SVG files to database...');
 
       for (final asset in svgs) {
-        final svgService = SvgService(assetPath: asset);
-        await svgService.load();
-        if (svgService.doc == null) continue;
+        try {
+          final svgService = SvgService(assetPath: asset);
+          await svgService.load();
+          
+          if (svgService.doc == null) {
+            debugPrint('[Dashboard] ✗ Failed to load: $asset');
+            continue;
+          }
 
-        final pathService = PathService();
-        pathService.buildPathsFromDoc(svgService.doc!);
+          final pathService = PathService();
+          pathService.buildPathsFromDoc(svgService.doc!);
 
-        final pathAreas = <String, double>{};
-        for (final pid in pathService.paths.keys) {
-          final b = pathService.paths[pid]!.getBounds();
-          final area = (b.width * b.height);
-          pathAreas[pid] = area.isFinite ? area : 0.0;
+          final pathAreas = <String, double>{};
+          for (final pid in pathService.paths.keys) {
+            try {
+              final b = pathService.paths[pid]!.getBounds();
+              final area = (b.width * b.height);
+              pathAreas[pid] = area.isFinite ? area : 0.0;
+            } catch (_) {
+              pathAreas[pid] = 0.0;
+            }
+          }
+          
+          final totalArea = pathAreas.values.fold(0.0, (a, b) => a + b);
+          
+          await _db.upsertImage(
+            asset, 
+            _titleFromAsset(asset), 
+            pathAreas.length, 
+            totalArea: totalArea
+          );
+          await _db.insertPathsForImage(asset, pathAreas);
+          
+          debugPrint('[Dashboard] ✓ Seeded: $asset (${pathAreas.length} paths, area: ${totalArea.toStringAsFixed(2)})');
+        } catch (e) {
+          debugPrint('[Dashboard] ✗ Error seeding $asset: $e');
         }
-        final totalArea = pathAreas.values.fold(0.0, (a, b) => a + b);
-        await _db.upsertImage(asset, _titleFromAsset(asset), pathAreas.length, totalArea: totalArea);
-        await _db.insertPathsForImage(asset, pathAreas);
       }
-    } catch (e) {
-      debugPrint('[discoverAndSeedSvgs] error: $e');
+      
+      debugPrint('[Dashboard] Seeding complete');
+    } catch (e, st) {
+      debugPrint('[Dashboard] discoverAndSeedSvgs error: $e\n$st');
     }
   }
 
-  // ✅ Your requested title mapping function (replaces the previous implementation)
   String _titleFromAsset(String asset) {
     const titles = {
       1: 'Maria likes to play',
@@ -152,7 +194,12 @@ class _DashboardPageState extends State<DashboardPage> {
       final n = int.parse(match.group(0)!);
       return titles[n] ?? name;
     }
-    final words = name.replaceAll('-', ' ').replaceAll('_', ' ').split(' ').where((w) => w.isNotEmpty).toList();
+    final words = name
+      .replaceAll('-', ' ')
+      .replaceAll('_', ' ')
+      .split(' ')
+      .where((w) => w.isNotEmpty)
+      .toList();
     return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
@@ -165,55 +212,72 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   int _boostProgressPercent(double rawPercent, double coloredAreaSum, double totalAreaSum) {
-    // Guarantee exact 100% in two cases:
-    // 1) coloredAreaSum >= totalAreaSum - eps
-    // 2) rawPercent >= 99.5 (very close to complete)
+    // Exact 100% when all area colored
     if (totalAreaSum > 0 && (coloredAreaSum + _eps >= totalAreaSum)) {
-      debugPrint('[Progress] All area colored -> 100%');
       return 100;
     }
+    
+    // Show 100% when raw is 99% or above
+    if (rawPercent >= 99.0) {
+      return 100;
+    }
+    
     if (rawPercent <= 0.0) return 0;
-    if (rawPercent >= 99.5) return 100;
 
     final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
-    double boosted = math.pow(normalized, _progressGamma) * 100.0;
+    double boosted = math.pow(normalized, _progressGamma).toDouble() * 100.0;
 
+    // Ensure tiny progress is visible
     if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
       boosted = _minVisibleProgress;
     }
 
-    // light mid-range smoothing to keep monotonic behaviour
+    // Smooth mid-range (30-95%)
     if (rawPercent >= 30.0 && rawPercent < 95.0) {
-      final midRangeBoost = math.pow(normalized, _progressGamma * 0.9) * 100.0;
-      final blendFactor = 0.2;
+      final midRangeBoost = math.pow(normalized, _progressGamma * 0.95).toDouble() * 100.0;
+      final blendFactor = 0.15;
       boosted = boosted * (1 - blendFactor) + midRangeBoost * blendFactor;
     }
 
-    if (boosted >= 99.0 && rawPercent < 95.0) {
+    // Prevent premature 100%
+    if (boosted >= 99.0 && rawPercent < 97.0) {
+      boosted = 98.0;
+    }
+    
+    if (boosted > 98.0 && rawPercent < 98.0) {
       boosted = 98.0;
     }
 
-    final result = boosted.round().clamp(0, 100);
-    debugPrint('[Progress] Raw: ${rawPercent.toStringAsFixed(2)}% -> Display: $result% (coloredAreaSum=${coloredAreaSum.toStringAsFixed(2)}, totalAreaSum=${totalAreaSum.toStringAsFixed(2)})');
-    return result;
+    return boosted.round().clamp(0, 99);
   }
 
   void _computeUnlockedStates() {
     _unlocked = List<bool>.filled(_rows.length, false);
     if (_rows.isEmpty) return;
+    
     _unlocked[0] = true;
+    debugPrint('[Dashboard] Image 0 unlocked by default');
+    
     for (var i = 1; i < _rows.length; i++) {
       final prev = _rows[i - 1];
       final prevTotal = (prev['total_area'] as num?)?.toDouble() ?? 0.0;
       final prevColored = (prev['colored_area'] as num?)?.toDouble() ?? 0.0;
+      final prevStored = (prev['display_percent'] as num?)?.toDouble() ?? 0.0;
 
-      final prevRawPercent = prevTotal == 0 ? 0.0 : (prevColored / prevTotal * 100.0);
-      final prevDisplay = _boostProgressPercent(prevRawPercent, prevColored, prevTotal);
+      int prevDisplay;
+      if (prevStored > 0 && prevStored <= 100) {
+        prevDisplay = prevStored.round();
+      } else {
+        final prevRaw = prevTotal == 0 ? 0.0 : (prevColored / prevTotal * 100.0);
+        prevDisplay = _boostProgressPercent(prevRaw, prevColored, prevTotal);
+      }
 
       if (_unlocked[i - 1] && prevDisplay >= _unlockThreshold) {
         _unlocked[i] = true;
+        debugPrint('[Dashboard] Image $i unlocked (prev progress: $prevDisplay%)');
       } else {
         _unlocked[i] = false;
+        debugPrint('[Dashboard] Image $i locked (prev progress: $prevDisplay% < $_unlockThreshold%)');
       }
     }
   }
@@ -223,14 +287,25 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final md = await rootBundle.loadString('docs/rheumatic-heart-disease.md');
       if (md.isNotEmpty) content = md;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[Dashboard] Failed to load rheumatic info: $e');
+    }
+    
     if (!mounted) return;
+    
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rheumatic Disease Information'),
-        content: SingleChildScrollView(child: Text(content.isNotEmpty ? content : 'Information not available')),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+        content: SingleChildScrollView(
+          child: Text(content.isNotEmpty ? content : 'Information not available')
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), 
+            child: const Text('Close')
+          )
+        ],
       ),
     );
   }
@@ -240,11 +315,17 @@ class _DashboardPageState extends State<DashboardPage> {
     final title = row['title'] as String? ?? id;
     final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
     final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+    final storedPercent = (row['display_percent'] as num?)?.toDouble() ?? 0.0;
 
     final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
 
-    // Guarantee 100% if colored_area >= total_area - eps
-    int displayPercent = _boostProgressPercent(rawPercent, coloredArea, totalArea);
+    int displayPercent;
+    
+    if (storedPercent > 0 && storedPercent <= 100) {
+      displayPercent = storedPercent.round();
+    } else {
+      displayPercent = _boostProgressPercent(rawPercent, coloredArea, totalArea);
+    }
 
     final unlocked = (index < _unlocked.length) ? _unlocked[index] : (index == 0);
     final rowOpacity = unlocked ? 1.0 : 0.45;
@@ -255,18 +336,37 @@ class _DashboardPageState extends State<DashboardPage> {
       child: GestureDetector(
         onTap: unlocked
             ? () async {
+                debugPrint('[Dashboard] Opening image: $id');
                 await Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => ColoringPage(assetPath: id, title: title, username: widget.username)),
+                  MaterialPageRoute(
+                    builder: (_) => ColoringPage(
+                      assetPath: id, 
+                      title: title, 
+                      username: widget.username
+                    )
+                  ),
                 );
+                debugPrint('[Dashboard] Returned from coloring page, reloading...');
                 await _loadRows();
               }
-            : null,
+            : () {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Complete previous image to $_unlockThreshold% to unlock'),
+                      duration: const Duration(seconds: 2),
+                    )
+                  );
+                }
+              },
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 8)],
+            boxShadow: const [
+              BoxShadow(color: Color(0x11000000), blurRadius: 8)
+            ],
           ),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
@@ -287,10 +387,15 @@ class _DashboardPageState extends State<DashboardPage> {
                         return SvgPicture.asset(
                           id,
                           fit: BoxFit.cover,
-                          placeholderBuilder: (_) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          placeholderBuilder: (_) => const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2)
+                          ),
                         );
-                      } catch (_) {
-                        return const Center(child: Text('🎨', style: TextStyle(fontSize: 32)));
+                      } catch (e) {
+                        debugPrint('[Dashboard] Failed to load thumbnail for $id: $e');
+                        return const Center(
+                          child: Text('🎨', style: TextStyle(fontSize: 32))
+                        );
                       }
                     }),
                   ),
@@ -300,13 +405,19 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      Text(
+                        title, 
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700, 
+                          fontSize: 15
+                        )
+                      ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
                             child: LinearProgressIndicator(
-                              value: totalArea == 0 ? 0 : math.min(1.0, (displayPercent / 100.0)),
+                              value: displayPercent / 100.0,
                               minHeight: 8,
                               backgroundColor: Colors.grey.shade200,
                               color: Colors.teal,
@@ -314,7 +425,10 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10, 
+                              vertical: 4
+                            ),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               color: pillColor,
@@ -333,9 +447,14 @@ class _DashboardPageState extends State<DashboardPage> {
                       const SizedBox(height: 8),
                       Text(
                         displayPercent == 0 
-                            ? 'Not started • Tap to open' 
-                            : (displayPercent < 100 ? 'In progress ($displayPercent%) • Tap to continue' : 'Completed • Tap to view'),
-                        style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                            ? (unlocked ? 'Not started • Tap to open' : 'Locked • Complete previous image')
+                            : (displayPercent < 100 
+                                ? 'In progress ($displayPercent%) • Tap to continue' 
+                                : 'Completed • Tap to view'),
+                        style: TextStyle(
+                          color: Colors.grey.shade700, 
+                          fontSize: 12
+                        ),
                       )
                     ],
                   ),
@@ -356,7 +475,11 @@ class _DashboardPageState extends State<DashboardPage> {
         onTap: _openRheumaticInfo,
         child: Container(
           decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)], 
+              begin: Alignment.topLeft, 
+              end: Alignment.bottomRight
+            ),
             borderRadius: BorderRadius.circular(28),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
@@ -365,7 +488,14 @@ class _DashboardPageState extends State<DashboardPage> {
             children: const [
               Icon(Icons.menu_book, color: Colors.white),
               SizedBox(width: 8),
-              Text('Learn More', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+              Text(
+                'Learn More', 
+                style: TextStyle(
+                  color: Colors.white, 
+                  fontWeight: FontWeight.w700, 
+                  fontSize: 16
+                )
+              ),
               SizedBox(width: 6),
               Icon(Icons.chevron_right, color: Colors.white),
             ],
@@ -392,8 +522,21 @@ class _DashboardPageState extends State<DashboardPage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(child: Text('Hi, ${widget.username} 👋', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
-              Image.asset('assets/logo2.png', height: 140, width: 140, fit: BoxFit.contain),
+              Expanded(
+                child: Text(
+                  'Hi, ${widget.username} 👋', 
+                  style: const TextStyle(
+                    fontSize: 22, 
+                    fontWeight: FontWeight.w700
+                  )
+                )
+              ),
+              Image.asset(
+                'assets/logo2.png', 
+                height: 140, 
+                width: 140, 
+                fit: BoxFit.contain
+              ),
               Expanded(
                 child: Align(
                   alignment: Alignment.centerRight,
@@ -406,14 +549,34 @@ class _DashboardPageState extends State<DashboardPage> {
                       );
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(color: const Color(0xFFFF6B6B), borderRadius: BorderRadius.circular(25), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 3))]),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14, 
+                        vertical: 8
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B6B), 
+                        borderRadius: BorderRadius.circular(25), 
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x22000000), 
+                            blurRadius: 6, 
+                            offset: Offset(0, 3)
+                          )
+                        ]
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
                           Icon(Icons.logout, size: 18, color: Colors.white),
                           SizedBox(width: 6),
-                          Text('Logout', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
+                          Text(
+                            'Logout', 
+                            style: TextStyle(
+                              fontSize: 16, 
+                              color: Colors.white, 
+                              fontWeight: FontWeight.w600
+                            )
+                          ),
                         ],
                       ),
                     ),
@@ -432,26 +595,63 @@ class _DashboardPageState extends State<DashboardPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 14, 
+                      horizontal: 12
+                    ),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)], 
+                        begin: Alignment.topLeft, 
+                        end: Alignment.bottomRight
+                      ),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
                       children: [
-                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Text('Your colouring progress', style: TextStyle(color: Color(0xFF2D7A72), fontSize: headingSize, fontWeight: FontWeight.w700)),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), 
-                            decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(12)), 
-                            child: Text('$_overall%', style: TextStyle(fontSize: percentSize, fontWeight: FontWeight.w700, color: Color(0xFF2D7A72)))
-                          ),
-                        ]),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center, 
+                          children: [
+                            const Text(
+                              'Your colouring progress', 
+                              style: TextStyle(
+                                color: Color(0xFF2D7A72), 
+                                fontSize: headingSize, 
+                                fontWeight: FontWeight.w700
+                              )
+                            ),
+                            const SizedBox(width: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12, 
+                                vertical: 6
+                              ), 
+                              decoration: BoxDecoration(
+                                color: Colors.white24, 
+                                borderRadius: BorderRadius.circular(12)
+                              ), 
+                              child: Text(
+                                '$_overall%', 
+                                style: const TextStyle(
+                                  fontSize: percentSize, 
+                                  fontWeight: FontWeight.w700, 
+                                  color: Color(0xFF2D7A72)
+                                )
+                              )
+                            ),
+                          ]
+                        ),
                         const SizedBox(height: 8),
                         _learnMoreEmbedded(),
                         const SizedBox(height: 6),
-                        const Text('Keep coloring to unlock new pages!', style: TextStyle(color: Color(0xFF2D7A72), fontSize: 14, fontWeight: FontWeight.w500)),
+                        const Text(
+                          'Keep coloring to unlock new pages!', 
+                          style: TextStyle(
+                            color: Color(0xFF2D7A72), 
+                            fontSize: 14, 
+                            fontWeight: FontWeight.w500
+                          )
+                        ),
                       ],
                     ),
                   ),

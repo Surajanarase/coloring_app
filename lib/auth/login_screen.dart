@@ -18,6 +18,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameCtrl = TextEditingController();
   final TextEditingController _passwordCtrl = TextEditingController();
 
+  // New controllers for registration fields
+  final TextEditingController _fullnameCtrl = TextEditingController();
+  final TextEditingController _ageCtrl = TextEditingController();
+
   final FocusNode _usernameFocus = FocusNode();
   final FocusNode _passwordFocus = FocusNode();
 
@@ -25,10 +29,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _obscure = true;
 
+  // gender state
+  String _gender = 'Other';
+  final List<String> _genderOptions = ['Male', 'Female', 'Other'];
+
   @override
   void dispose() {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
+    _fullnameCtrl.dispose();
+    _ageCtrl.dispose();
     _usernameFocus.dispose();
     _passwordFocus.dispose();
     super.dispose();
@@ -44,8 +54,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       if (_isRegisterMode) {
-        // Create new user
-        final result = await _db.createUser(username, password);
+        // Collect register-only fields
+        final fullname = _fullnameCtrl.text.trim();
+        final ageText = _ageCtrl.text.trim();
+        final age = ageText.isEmpty ? null : int.tryParse(ageText);
+
+        // Create new user (db.createUser updated to accept these)
+        final result = await _db.createUser(username, password,
+            fullname: fullname, age: age, gender: _gender);
 
         if (!mounted) return;
         setState(() => _loading = false);
@@ -193,6 +209,72 @@ class _LoginScreenState extends State<LoginScreen> {
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
+
+                          // If registering, show Full name, Age, Gender first (new)
+                          if (_isRegisterMode) ...[
+                            TextFormField(
+                              controller: _fullnameCtrl,
+                              textInputAction: TextInputAction.next,
+                              decoration: InputDecoration(
+                                labelText: 'Full name',
+                                filled: true,
+                                fillColor: Color.fromRGBO(255, 255, 255, 0.9),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                prefixIcon: const Icon(Icons.person),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Enter full name';
+                                }
+                                if (v.trim().length < 3) {
+                                  return 'At least 3 characters';
+                                }
+                                return null;
+                              },
+                              onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _ageCtrl,
+                              keyboardType: TextInputType.number,
+                              textInputAction: TextInputAction.next,
+                              decoration: InputDecoration(
+                                labelText: 'Age',
+                                filled: true,
+                                fillColor: Color.fromRGBO(255, 255, 255, 0.9),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                prefixIcon: const Icon(Icons.cake),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Enter age';
+                                }
+                                final n = int.tryParse(v.trim());
+                                if (n == null || n <= 0) return 'Enter a valid age';
+                                return null;
+                              },
+                              onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
+                            ),
+                            const SizedBox(height: 12),
+                            // Gender dropdown (use initialValue to avoid deprecated `value`)
+                            DropdownButtonFormField<String>(
+                              initialValue: _gender,
+                              decoration: InputDecoration(
+                                labelText: 'Gender',
+                                filled: true,
+                                fillColor: Color.fromRGBO(255, 255, 255, 0.9),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                prefixIcon: const Icon(Icons.transgender),
+                              ),
+                              items: _genderOptions
+                                  .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                                  .toList(),
+                              onChanged: (v) {
+                                if (v != null) setState(() => _gender = v);
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                          ],
 
                           // Username
                           TextFormField(
