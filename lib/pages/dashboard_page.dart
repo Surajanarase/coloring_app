@@ -127,9 +127,33 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  // ✅ Your requested title mapping function (replaces the previous implementation)
   String _titleFromAsset(String asset) {
+    const titles = {
+      1: 'Maria likes to play',
+      2: 'Maria has a sore throat',
+      3: 'Maria go to a health clinic',
+      4: 'Parents decided to give a home remedy',
+      5: 'Maria feels sick again',
+      6: 'Elbows and knees joints hurt',
+      7: 'She gets tired easily',
+      8: 'Hard for Maria to breathe',
+      9: 'Maria goes to health clinic',
+      10: 'May need surgery',
+      11: 'Clinic importance',
+      12: 'Home remedy is dangerous',
+      13: 'Proper clinical medicine',
+      14: 'You can grow up and healthy',
+    };
+
     final name = asset.split('/').last.replaceAll('.svg', '');
-    return name.replaceAll('-', ' ').replaceAll('_', ' ');
+    final match = RegExp(r'\d+').firstMatch(name);
+    if (match != null) {
+      final n = int.parse(match.group(0)!);
+      return titles[n] ?? name;
+    }
+    final words = name.replaceAll('-', ' ').replaceAll('_', ' ').split(' ').where((w) => w.isNotEmpty).toList();
+    return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
   Color _percentColor(int percent) {
