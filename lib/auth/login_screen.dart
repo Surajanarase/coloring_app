@@ -132,20 +132,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Top gradient colors in original file:
+    // Color(0xFF9ABAFF), Color(0xFFECE17E), Color(0xFF8EDF79)
+    // They were previously used with withOpacity(1.0) — that's equivalent to the base colors.
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         body: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                const Color(0xFF9ABAFF).withValues(alpha: 1.0),
-                const Color(0xFFECE17E).withValues(alpha: 1.0),
-                const Color(0xFF8EDF79).withValues(alpha: 1.0),
+                Color(0xFF9ABAFF),
+                Color(0xFFECE17E),
+                Color(0xFF8EDF79),
               ],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              stops: const [0.0, 0.48, 1.0],
+              stops: [0.0, 0.48, 1.0],
             ),
           ),
           child: Center(
@@ -159,10 +162,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.all(20),
                     margin: const EdgeInsets.symmetric(horizontal: 8),
                     decoration: BoxDecoration(
+                      // Replace Colors.white.withOpacity(0.95) etc with Color.fromRGBO
                       gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.95),
-                          Colors.white.withValues(alpha: 0.85),
+                        colors: const [
+                          // white @ 95%
+                          Color.fromRGBO(255, 255, 255, 0.95),
+                          // white @ 85%
+                          Color.fromRGBO(255, 255, 255, 0.85),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -197,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: InputDecoration(
                               labelText: 'Username',
                               filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.9),
+                              fillColor: Color.fromRGBO(255, 255, 255, 0.9),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                               prefixIcon: const Icon(Icons.person_outline),
                             ),
@@ -226,7 +232,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: InputDecoration(
                               labelText: 'Password',
                               filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.9),
+                              fillColor: Color.fromRGBO(255, 255, 255, 0.9),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                               prefixIcon: const Icon(Icons.lock_outline),
                               suffixIcon: IconButton(
@@ -259,7 +265,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               onPressed: _loading ? null : _submit,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,
-                                shadowColor: Colors.blue.withValues(alpha: 0.3),
+                                // Replace shadow color with explicit RGBO to avoid withOpacity
+                                shadowColor: Color.fromRGBO(33, 150, 243, 0.3),
                                 padding: EdgeInsets.zero,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 elevation: 4,
@@ -267,9 +274,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: Ink(
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
-                                    colors: [
-                                      Colors.blue.withValues(alpha: 0.8),
-                                      Colors.indigo.withValues(alpha: 0.8),
+                                    colors: const [
+                                      // Colors.blue.withOpacity(0.8) -> Color.fromRGBO(33,150,243,0.8)
+                                      Color.fromRGBO(33, 150, 243, 0.8),
+                                      // Colors.indigo.withOpacity(0.8) -> Color.fromRGBO(63,81,181,0.8)
+                                      Color.fromRGBO(63, 81, 181, 0.8),
                                     ],
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,

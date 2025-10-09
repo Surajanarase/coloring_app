@@ -29,24 +29,10 @@ class _DashboardPageState extends State<DashboardPage> {
   List<bool> _unlocked = [];
   static const int _unlockThreshold = 90;
 
-  // ✅ COMPLETELY REDESIGNED: Progressive boost system for smooth, consistent progression
-  // Lower value = more aggressive boost throughout the range
-  static const double _progressGamma = 0.55; // Increased boost significantly
-  static const double _minVisibleProgress = 12.0; // Minimum visible progress when any coloring is done
-
-  static const String _fallbackRheumaticInfoText = '''
-Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
-
-Common signs:
-• Persistent joint pain and swelling
-• Morning stiffness lasting longer than 30 minutes
-• Fatigue, low-grade fever
-
-When to see a doctor:
-If you experience persistent joint pain, stiffness or swelling, consult a healthcare professional for evaluation and timely management.
-
-This app is for educational/demo purposes only.
-''';
+  // Boost parameters (optional visual boost)
+  static const double _progressGamma = 0.60;
+  static const double _minVisibleProgress = 8.0;
+  static const double _eps = 0.000001; // tolerance for floating comparisons
 
   @override
   void initState() {
@@ -86,41 +72,19 @@ This app is for educational/demo purposes only.
       if (!mounted) return;
       setState(() => _rows = rows);
 
-      // ✅ FIXED: Use same boost function for overall progress
+      // Compute overall using area sums but clamp & handle zero-area safely
       final totalAreaSum = _rows.fold<double>(0.0, (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0));
       final coloredAreaSum = _rows.fold<double>(0.0, (a, r) => a + ((r['colored_area'] as num?)?.toDouble() ?? 0.0));
       final overallRaw = totalAreaSum == 0 ? 0.0 : (coloredAreaSum / totalAreaSum * 100.0);
-      
-      // Use the exact same boost function for consistency
-      _overall = _boostProgressPercent(overallRaw);
+
+      // Boost and clamp, but guarantee 100 when nearly complete
+      _overall = _boostProgressPercent(overallRaw, coloredAreaSum, totalAreaSum);
 
       _computeUnlockedStates();
     } catch (e, st) {
       debugPrint('Error loading dashboard rows: $e\n$st');
     }
     if (mounted) setState(() => _loading = false);
-  }
-
-  /// ✅ FIXED: Compute unlocked states using SAME boost function consistently
-  void _computeUnlockedStates() {
-    _unlocked = List<bool>.filled(_rows.length, false);
-    if (_rows.isEmpty) return;
-    _unlocked[0] = true;
-    for (var i = 1; i < _rows.length; i++) {
-      final prev = _rows[i - 1];
-      final prevTotal = (prev['total_area'] as num?)?.toDouble() ?? 0.0;
-      final prevColored = (prev['colored_area'] as num?)?.toDouble() ?? 0.0;
-      final prevRawPercent = prevTotal == 0 ? 0.0 : (prevColored / prevTotal * 100.0);
-
-      // ✅ Use same boost function for unlock logic - CONSISTENT everywhere
-      final prevDisplay = _boostProgressPercent(prevRawPercent);
-
-      if (_unlocked[i - 1] && prevDisplay >= _unlockThreshold) {
-        _unlocked[i] = true;
-      } else {
-        _unlocked[i] = false;
-      }
-    }
   }
 
   Future<void> _debugPrintAssetManifest() async {
@@ -164,33 +128,10 @@ This app is for educational/demo purposes only.
   }
 
   String _titleFromAsset(String asset) {
-    const titles = {
-      1: 'Maria likes to play',
-      2: 'Maria has a sore throat',
-      3: 'Maria go to a health clinic',
-      4: 'Parents decided to give a home remedy',
-      5: 'Maria feels sick again',
-      6: 'Elbows and knees joints hurt',
-      7: 'She gets tired easily',
-      8: 'Hard for Maria to breathe',
-      10: 'May need surgery',
-      11: 'Clinic importance',
-      12: 'Home remedy is dangerous',
-      13: 'Proper clinical medicine',
-      14: 'You can grow up and healthy',
-    };
-
     final name = asset.split('/').last.replaceAll('.svg', '');
-    final match = RegExp(r'\d+').firstMatch(name);
-    if (match != null) {
-      final n = int.parse(match.group(0)!);
-      return titles[n] ?? name;
-    }
-    final words = name.replaceAll('-', ' ').replaceAll('_', ' ').split(' ').where((w) => w.isNotEmpty).toList();
-    return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
+    return name.replaceAll('-', ' ').replaceAll('_', ' ');
   }
 
-  // ✅ UPDATED: Color scheme for percentage boxes
   Color _percentColor(int percent) {
     if (percent == 0) return Colors.grey;
     if (percent <= 20) return Colors.red;
@@ -199,59 +140,62 @@ This app is for educational/demo purposes only.
     return Colors.green;
   }
 
-  /// ✅ COMPLETELY REDESIGNED: Smooth, consistent progress boost across ALL ranges
-  /// This single function is used EVERYWHERE for consistency:
-  /// - Individual image progress display
-  /// - Overall progress calculation
-  /// - Unlock logic
-  /// NO MORE STUCK PROGRESS - smooth progression from 0 to 100%
-  int _boostProgressPercent(double rawPercent) {
-    // Handle edge cases
+  int _boostProgressPercent(double rawPercent, double coloredAreaSum, double totalAreaSum) {
+    // Guarantee exact 100% in two cases:
+    // 1) coloredAreaSum >= totalAreaSum - eps
+    // 2) rawPercent >= 99.5 (very close to complete)
+    if (totalAreaSum > 0 && (coloredAreaSum + _eps >= totalAreaSum)) {
+      debugPrint('[Progress] All area colored -> 100%');
+      return 100;
+    }
     if (rawPercent <= 0.0) return 0;
-    if (rawPercent >= 99.5) return 100; // Almost complete = 100%
-    
-    // ✅ Apply consistent gamma boost across entire range
+    if (rawPercent >= 99.5) return 100;
+
     final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
     double boosted = math.pow(normalized, _progressGamma) * 100.0;
-    
-    // ✅ Ensure minimum visible progress for ANY coloring activity
+
     if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
       boosted = _minVisibleProgress;
     }
-    
-    // ✅ CRITICAL FIX: Add smoothing in mid-to-high ranges to prevent plateaus
-    // This ensures continuous visible progress even when coloring small areas
-    if (rawPercent >= 40.0 && rawPercent < 95.0) {
-      // Blend with slightly more aggressive boost in this range
-      final midRangeBoost = math.pow(normalized, _progressGamma * 0.85) * 100.0;
-      final blendFactor = 0.3; // 30% more aggressive
+
+    // light mid-range smoothing to keep monotonic behaviour
+    if (rawPercent >= 30.0 && rawPercent < 95.0) {
+      final midRangeBoost = math.pow(normalized, _progressGamma * 0.9) * 100.0;
+      final blendFactor = 0.2;
       boosted = boosted * (1 - blendFactor) + midRangeBoost * blendFactor;
     }
-    
-    // ✅ Final smoothing: ensure we never show 100% unless truly near complete
+
     if (boosted >= 99.0 && rawPercent < 95.0) {
       boosted = 98.0;
     }
-    
+
     final result = boosted.round().clamp(0, 100);
-    
-    // Debug logging to track progress consistency
-    if (rawPercent > 0) {
-      debugPrint('[Progress] Raw: ${rawPercent.toStringAsFixed(2)}% -> Display: $result%');
-    }
-    
+    debugPrint('[Progress] Raw: ${rawPercent.toStringAsFixed(2)}% -> Display: $result% (coloredAreaSum=${coloredAreaSum.toStringAsFixed(2)}, totalAreaSum=${totalAreaSum.toStringAsFixed(2)})');
     return result;
   }
 
-  Future<void> _logout() async {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+  void _computeUnlockedStates() {
+    _unlocked = List<bool>.filled(_rows.length, false);
+    if (_rows.isEmpty) return;
+    _unlocked[0] = true;
+    for (var i = 1; i < _rows.length; i++) {
+      final prev = _rows[i - 1];
+      final prevTotal = (prev['total_area'] as num?)?.toDouble() ?? 0.0;
+      final prevColored = (prev['colored_area'] as num?)?.toDouble() ?? 0.0;
+
+      final prevRawPercent = prevTotal == 0 ? 0.0 : (prevColored / prevTotal * 100.0);
+      final prevDisplay = _boostProgressPercent(prevRawPercent, prevColored, prevTotal);
+
+      if (_unlocked[i - 1] && prevDisplay >= _unlockThreshold) {
+        _unlocked[i] = true;
+      } else {
+        _unlocked[i] = false;
+      }
+    }
   }
 
   Future<void> _openRheumaticInfo() async {
-    String content = _fallbackRheumaticInfoText;
+    String content = '';
     try {
       final md = await rootBundle.loadString('docs/rheumatic-heart-disease.md');
       if (md.isNotEmpty) content = md;
@@ -261,7 +205,7 @@ This app is for educational/demo purposes only.
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rheumatic Disease Information'),
-        content: SingleChildScrollView(child: Text(content)),
+        content: SingleChildScrollView(child: Text(content.isNotEmpty ? content : 'Information not available')),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
       ),
     );
@@ -273,12 +217,10 @@ This app is for educational/demo purposes only.
     final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
     final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
 
-    // ✅ Calculate raw percent and apply THE SAME boost function everywhere
     final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
-    final displayPercent = _boostProgressPercent(rawPercent);
 
-    // Debug log for this specific row
-    debugPrint('[Row: $title] Total: $totalArea, Colored: $coloredArea, Raw: ${rawPercent.toStringAsFixed(2)}%, Display: $displayPercent%');
+    // Guarantee 100% if colored_area >= total_area - eps
+    int displayPercent = _boostProgressPercent(rawPercent, coloredArea, totalArea);
 
     final unlocked = (index < _unlocked.length) ? _unlocked[index] : (index == 0);
     final rowOpacity = unlocked ? 1.0 : 0.45;
@@ -433,7 +375,12 @@ This app is for educational/demo purposes only.
                   alignment: Alignment.centerRight,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(25),
-                    onTap: _logout,
+                    onTap: () {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                        (route) => false,
+                      );
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(color: const Color(0xFFFF6B6B), borderRadius: BorderRadius.circular(25), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 3))]),

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:xml/xml.dart';
 
+
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
@@ -161,11 +162,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     if (_currentTool == 'color') {
       final colorHex = _colorToHex(_selectedColor!);
       _svgService.applyFillToElementById(hitId, colorHex);
-      await _db.markPathColored(hitId, colorHex);
+      await _db.markPathColored(hitId, colorHex, imageId: widget.assetPath);
     } else if (_currentTool == 'eraser') {
       final orig = _originalFills[hitId] ?? 'none';
       _svgService.applyFillToElementById(hitId, orig);
-      await _db.markPathUncolored(hitId);
+      await _db.markPathUncolored(hitId, imageId: widget.assetPath);
     }
 
     _buildPathsAndHitTest();
@@ -197,27 +198,19 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     });
   }
 
-  /// ✅ FIXED: Clear all colors and PROPERLY sync DB
   Future<void> _clearCanvasAll() async {
     if (_svgService.doc == null) return;
-    
+
     if (!mounted) return;
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Clear Canvas?'),
         content: const Text('This will remove all colors from this image. Are you sure?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text('Clear')),
         ],
       ),
     );
@@ -228,26 +221,22 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     final imageId = widget.assetPath;
 
     try {
-      // Step 1: Reset ALL paths in DB to uncolored
       await _db.resetImageProgress(imageId);
-      
-      // Step 2: Reload original SVG
+
       if (_originalSvgString != null) {
         _svgService.setSvgString(_originalSvgString!);
       } else {
         await _svgService.load();
       }
 
-      // Step 3: Rebuild paths
       _buildPathsAndHitTest();
-      
-      // Step 4: Refresh original fills map
+
       _originalFills.clear();
       for (final pid in _pathService.paths.keys) {
         _originalFills[pid] = _getOriginalFillForElement(pid);
       }
 
-      // Step 5: CRITICAL - Verify DB is cleared by re-syncing
+      // Re-sync DB from SVG (ensure DB and SVG consistent)
       await _restoreDbFromSvg();
 
     } catch (e) {
@@ -262,58 +251,53 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     );
   }
 
-  /// ✅ FIXED: Save and sync DB before closing
   Future<void> _saveProgress() async {
     // Sync DB with actual SVG state
     await _restoreDbFromSvg();
 
-    // Wait for DB write
+    // Small wait to let disk write happen (not necessary but smooth)
     await Future.delayed(const Duration(milliseconds: 150));
 
     if (!mounted) return;
-    
-    // Show progress info
-    final coloredCount = await _db.getColoredCountForImage(widget.assetPath);
-    final totalCount = await _db.getTotalPathsForImage(widget.assetPath);
-    final percent = totalCount > 0 ? ((coloredCount / totalCount) * 100).round() : 0;
+
+    // Show progress info using area-based percentages
+    final coloredAreaQuery = await _db.getDashboardRows();
+    final row = coloredAreaQuery.firstWhere((r) => r['id'] == widget.assetPath, orElse: () => {});
+    final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
+    final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+
+    final percent = totalArea > 0 ? ((coloredArea / totalArea) * 100).round() : 0;
 
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Progress saved! $percent% complete ($coloredCount/$totalCount paths colored)'),
-        duration: const Duration(seconds: 2),
-      ),
+      SnackBar(content: Text('Progress saved! $percent% complete'), duration: const Duration(seconds: 2)),
     );
 
     if (!mounted) return;
     Navigator.of(context).pop();
   }
 
-  /// ✅ FIXED: Scan current SVG and update DB accurately
   Future<void> _restoreDbFromSvg() async {
     final doc = _svgService.doc;
     if (doc == null) return;
-    
-    // Get all drawable elements with IDs
+
+    // For each drawable element with id, determine fill and update DB accordingly
     for (final elem in doc.findAllElements('*')) {
       final id = elem.getAttribute('id');
       if (id == null || id.isEmpty) continue;
 
-      // Check if this is a drawable element
       final name = elem.name.local.toLowerCase();
       if (!['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline'].contains(name)) {
         continue;
       }
 
       String? fill;
-      
-      // First check 'fill' attribute
+
       final f = elem.getAttribute('fill');
       if (f != null && f.trim().isNotEmpty) {
         fill = f.trim();
       } else {
-        // Check 'style' attribute for fill
         final style = elem.getAttribute('style');
         if (style != null && style.trim().isNotEmpty) {
           for (final entry in style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty)) {
@@ -325,15 +309,13 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         }
       }
 
-      // Determine if colored or not
       final originalFill = _originalFills[id] ?? 'none';
-      
+      final imageId = widget.assetPath;
+
       if (fill == null || fill.isEmpty || fill == 'none' || fill == originalFill) {
-        // Not colored - mark as uncolored
-        await _db.markPathUncolored(id);
+        await _db.markPathUncolored(id, imageId: imageId);
       } else {
-        // Colored with a different fill - mark as colored
-        await _db.markPathColored(id, fill);
+        await _db.markPathColored(id, fill, imageId: imageId);
       }
     }
   }

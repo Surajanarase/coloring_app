@@ -1,4 +1,6 @@
 // lib/services/db_service.dart
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter/foundation.dart';
@@ -9,12 +11,10 @@ class DbService {
   DbService._internal();
 
   Database? _db;
-  static const int _dbVersion = 5; // bumped for bug fixes
-
+  static const int _dbVersion = 7;
   String? _currentUsername;
-  void setCurrentUser(String username) {
-    _currentUsername = username;
-  }
+
+  void setCurrentUser(String username) => _currentUsername = username;
 
   Future<Database> get db async {
     if (_db != null && _db!.isOpen) return _db!;
@@ -28,11 +28,8 @@ class DbService {
     return openDatabase(
       path,
       version: _dbVersion,
-      onCreate: (db, version) async {
-        await _createSchema(db);
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        // Clean upgrade - drop and recreate
+      onCreate: (db, _) async => await _createSchema(db),
+      onUpgrade: (db, oldV, newV) async {
         try {
           await db.execute('DROP TABLE IF EXISTS paths');
           await db.execute('DROP TABLE IF EXISTS images');
@@ -75,29 +72,22 @@ class DbService {
         FOREIGN KEY(image_id, username) REFERENCES images(id, username)
       )
     ''');
-    
-    // Create indexes for faster queries
+
     await db.execute('CREATE INDEX IF NOT EXISTS idx_paths_image ON paths(image_id, username)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_paths_colored ON paths(image_id, username, is_colored)');
   }
 
-  // -----------------------
-  // User auth
-  // -----------------------
-
+  // -------------------------------------------------------------------
+  //  USER AUTH
+  // -------------------------------------------------------------------
   Future<String> createUser(String username, String password) async {
     final database = await db;
     try {
-      await database.insert(
-        'users',
-        {'username': username, 'password': password},
-        conflictAlgorithm: ConflictAlgorithm.abort,
-      );
+      await database.insert('users', {'username': username, 'password': password},
+          conflictAlgorithm: ConflictAlgorithm.abort);
       return 'ok';
     } on DatabaseException catch (e) {
-      if (e.isUniqueConstraintError()) {
-        return 'exists';
-      }
+      if (e.isUniqueConstraintError()) return 'exists';
       return 'db_error';
     } catch (_) {
       return 'unknown_error';
@@ -106,13 +96,11 @@ class DbService {
 
   Future<bool> authenticateUser(String username, String password) async {
     final database = await db;
-    final rows = await database.query(
-      'users',
-      columns: ['id'],
-      where: 'username = ? AND password = ?',
-      whereArgs: [username, password],
-      limit: 1,
-    );
+    final rows = await database.query('users',
+        columns: ['id'],
+        where: 'username = ? AND password = ?',
+        whereArgs: [username, password],
+        limit: 1);
     if (rows.isNotEmpty) {
       setCurrentUser(username);
       return true;
@@ -120,158 +108,184 @@ class DbService {
     return false;
   }
 
-  Future<List<Map<String, dynamic>>> getAllUsers() async {
-    final database = await db;
-    return database.query('users');
-  }
-
-  // -----------------------
-  // Coloring app methods (per-user)
-  // -----------------------
-
-  Future<void> upsertImage(
-    String id,
-    String title,
-    int totalPaths, {
-    double totalArea = 0.0,
-  }) async {
+  // -------------------------------------------------------------------
+  //  IMAGE + PATH LOGIC (PER-USER)
+  // -------------------------------------------------------------------
+  Future<void> upsertImage(String id, String title, int totalPaths,
+      {double totalArea = 0.0}) async {
     if (_currentUsername == null) return;
     final database = await db;
-    await database.insert(
-      'images',
-      {
-        'id': id,
-        'username': _currentUsername,
-        'title': title,
-        'total_paths': totalPaths,
-        'total_area': totalArea
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+
+    final existing = await database.query('images',
+        where: 'id = ? AND username = ?',
+        whereArgs: [id, _currentUsername],
+        limit: 1);
+
+    if (existing.isNotEmpty) {
+      final ex = existing.first;
+      final existingTotalArea = (ex['total_area'] as num?)?.toDouble() ?? 0.0;
+      final areaToStore = (existingTotalArea > 0) ? existingTotalArea : totalArea;
+      await database.update(
+        'images',
+        {
+          'title': title,
+          'total_paths': totalPaths,
+          'total_area': areaToStore,
+        },
+        where: 'id = ? AND username = ?',
+        whereArgs: [id, _currentUsername],
+      );
+    } else {
+      await database.insert(
+        'images',
+        {
+          'id': id,
+          'username': _currentUsername,
+          'title': title,
+          'total_paths': totalPaths,
+          'total_area': totalArea
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
   }
 
-  /// Insert or update paths with their areas
-  Future<void> insertPathsForImage(String imageId, Map<String, double> pathAreas) async {
+  /// Insert or update path areas and automatically correct total_area if needed
+  Future<void> insertPathsForImage(
+      String imageId, Map<String, double> pathAreas) async {
     if (_currentUsername == null || pathAreas.isEmpty) return;
     final database = await db;
+
+    final Map<String, double> normalized = {};
+    for (final e in pathAreas.entries) {
+      normalized[e.key] = (e.value.isFinite && e.value > 0) ? e.value : 0.0;
+    }
+
+    final areas = normalized.values.toList()..sort();
+    final count = areas.length;
+    final totalArea = areas.fold(0.0, (a, b) => a + b);
+    final avg = count > 0 ? totalArea / count : 0.0;
+    final median = count > 0
+        ? (count.isOdd
+            ? areas[count ~/ 2]
+            : (areas[count ~/ 2 - 1] + areas[count ~/ 2]) / 2)
+        : 0.0;
+    final maxA = count > 0 ? areas.last : 0.0;
+    final hasOutlier = (count > 0) &&
+        ((avg > 0 && maxA / (avg + 1e-9) > 20) ||
+            (totalArea > 0 && maxA / (totalArea + 1e-9) > 0.5));
+
+    double effectiveTotal = totalArea;
+    if (hasOutlier) {
+      final medianT = median * 10;
+      final avgT = avg * 20;
+      final threshold = math.max(medianT, avgT);
+      final filtered = normalized.values.where((v) => v <= threshold).toList();
+      final filteredTotal = filtered.fold(0.0, (a, b) => a + b);
+      if (filteredTotal > 0) effectiveTotal = filteredTotal;
+      debugPrint('[DB] Outlier fix for $imageId → using $effectiveTotal');
+    }
+
+    // Update paths
     final batch = database.batch();
-    
-    for (final entry in pathAreas.entries) {
-      // Check if path already exists
-      final existing = await database.query(
+    for (final e in normalized.entries) {
+      batch.insert(
         'paths',
-        where: 'id = ? AND username = ?',
-        whereArgs: [entry.key, _currentUsername],
-        limit: 1,
+        {
+          'id': e.key,
+          'image_id': imageId,
+          'username': _currentUsername,
+          'area': e.value,
+          'is_colored': 0,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
       );
-      
-      if (existing.isEmpty) {
-        // Insert new path
-        batch.insert(
-          'paths',
-          {
-            'id': entry.key,
-            'image_id': imageId,
-            'username': _currentUsername,
-            'is_colored': 0,
-            'color': null,
-            'area': entry.value
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
-      } else {
-        // Update existing path's area (preserve color state)
-        batch.update(
-          'paths',
-          {'area': entry.value},
-          where: 'id = ? AND username = ?',
-          whereArgs: [entry.key, _currentUsername],
-        );
-      }
+      batch.update(
+        'paths',
+        {'area': e.value},
+        where: 'id = ? AND username = ?',
+        whereArgs: [e.key, _currentUsername],
+      );
     }
     await batch.commit(noResult: true);
 
-    // Update image total area
-    final totalArea = pathAreas.values.fold<double>(0.0, (a, b) => a + b);
-    await database.update(
+    // Update or insert image row with smart replacement logic
+    final existing = await database.query(
       'images',
-      {
-        'total_paths': pathAreas.length,
-        'total_area': totalArea,
-      },
       where: 'id = ? AND username = ?',
       whereArgs: [imageId, _currentUsername],
+      limit: 1,
     );
-  }
 
-  /// Mark a path as colored with specific color
-  Future<void> markPathColored(String pathId, String colorHex) async {
-    if (_currentUsername == null) return;
-    final database = await db;
-    
-    final updated = await database.update(
-      'paths',
-      {'is_colored': 1, 'color': colorHex},
-      where: 'id = ? AND username = ?',
-      whereArgs: [pathId, _currentUsername],
-    );
-    
-    debugPrint('[DB] Marked path $pathId as colored ($colorHex) - updated: $updated rows');
-  }
+    if (existing.isNotEmpty) {
+      final ex = existing.first;
+      final oldArea = (ex['total_area'] as num?)?.toDouble() ?? 0.0;
+      double areaToSet = oldArea;
 
-  /// Mark a path as uncolored (erased)
-  Future<void> markPathUncolored(String pathId) async {
-    if (_currentUsername == null) return;
-    final database = await db;
-    
-    final updated = await database.update(
-      'paths',
-      {'is_colored': 0, 'color': null},
-      where: 'id = ? AND username = ?',
-      whereArgs: [pathId, _currentUsername],
-    );
-    
-    debugPrint('[DB] Marked path $pathId as uncolored - updated: $updated rows');
-  }
+      if (effectiveTotal > 0) {
+        final ratio = oldArea / effectiveTotal;
+        if (oldArea <= 0 || ratio > 1.4) {
+          areaToSet = effectiveTotal;
+          debugPrint(
+              '[DB] Replaced total_area for $imageId (old=$oldArea new=$effectiveTotal)');
+        }
+      }
 
-  /// Get dashboard rows with ACCURATE area-based progress
-  Future<List<Map<String, dynamic>>> getDashboardRows() async {
-    if (_currentUsername == null) return [];
-    final database = await db;
-    
-    final rows = await database.rawQuery('''
-      SELECT 
-        i.id, 
-        i.title, 
-        i.total_paths,
-        i.total_area,
-        COALESCE(
-          (SELECT SUM(p.area) 
-           FROM paths p 
-           WHERE p.image_id = i.id 
-             AND p.username = i.username 
-             AND p.is_colored = 1), 
-          0
-        ) AS colored_area
-      FROM images i
-      WHERE i.username = ?
-      ORDER BY i.id
-    ''', [_currentUsername]);
-    
-    // Debug output
-    for (var row in rows) {
-      final id = row['id'] as String;
-      final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
-      final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
-      final percent = totalArea > 0 ? (coloredArea / totalArea * 100).round() : 0;
-      debugPrint('[DB] $id: $percent% complete (colored: $coloredArea / total: $totalArea)');
+      await database.update(
+        'images',
+        {'total_paths': normalized.length, 'total_area': areaToSet},
+        where: 'id = ? AND username = ?',
+        whereArgs: [imageId, _currentUsername],
+      );
+    } else {
+      await database.insert(
+        'images',
+        {
+          'id': imageId,
+          'username': _currentUsername,
+          'title': imageId.split('/').last,
+          'total_paths': normalized.length,
+          'total_area': effectiveTotal
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
-    
-    return rows;
   }
 
-  /// Get all colored paths for an image
-  Future<List<Map<String, dynamic>>> getColoredPathsForImage(String imageId) async {
+  // -------------------------------------------------------------------
+  //  COLORING PROGRESS
+  // -------------------------------------------------------------------
+  Future<void> markPathColored(String pathId, String colorHex,
+      {String? imageId}) async {
+    if (_currentUsername == null) return;
+    final database = await db;
+    final where = imageId != null
+        ? 'id = ? AND image_id = ? AND username = ?'
+        : 'id = ? AND username = ?';
+    final args = imageId != null
+        ? [pathId, imageId, _currentUsername]
+        : [pathId, _currentUsername];
+
+    await database.update('paths', {'is_colored': 1, 'color': colorHex},
+        where: where, whereArgs: args);
+  }
+
+  Future<void> markPathUncolored(String pathId, {String? imageId}) async {
+    if (_currentUsername == null) return;
+    final database = await db;
+    final where = imageId != null
+        ? 'id = ? AND image_id = ? AND username = ?'
+        : 'id = ? AND username = ?';
+    final args = imageId != null
+        ? [pathId, imageId, _currentUsername]
+        : [pathId, _currentUsername];
+    await database.update('paths', {'is_colored': 0, 'color': null},
+        where: where, whereArgs: args);
+  }
+
+  /// ✅ Added back: getColoredPathsForImage (used in colouring_page.dart)
+  Future<List<Map<String, dynamic>>> getColoredPathsForImage(
+      String imageId) async {
     if (_currentUsername == null) return [];
     final database = await db;
     return await database.rawQuery(
@@ -280,118 +294,86 @@ class DbService {
     );
   }
 
-  /// ✅ FIXED: Reset all paths for an image to uncolored
+  /// ✅ Added back: resetImageProgress (used in colouring_page.dart)
   Future<void> resetImageProgress(String imageId) async {
     if (_currentUsername == null) return;
     final database = await db;
-    
-    final updated = await database.update(
-      'paths',
-      {'is_colored': 0, 'color': null},
-      where: 'image_id = ? AND username = ?',
-      whereArgs: [imageId, _currentUsername],
-    );
-    
-    debugPrint('[DB] Reset image $imageId - cleared $updated paths');
-    
-    // Verify reset
-    final coloredCount = await database.rawQuery(
-      'SELECT COUNT(*) as count FROM paths WHERE image_id = ? AND username = ? AND is_colored = 1',
-      [imageId, _currentUsername],
-    );
-    final remaining = Sqflite.firstIntValue(coloredCount) ?? 0;
-    debugPrint('[DB] After reset: $remaining colored paths remaining (should be 0)');
+    await database.update('paths', {'is_colored': 0, 'color': null},
+        where: 'image_id = ? AND username = ?',
+        whereArgs: [imageId, _currentUsername]);
+    debugPrint('[DB] Reset progress for $imageId');
   }
 
-  // -----------------------
-  // Helper methods
-  // -----------------------
-
-  /// Get count of colored paths for an image
-  Future<int> getColoredCountForImage(String imageId) async {
-    if (_currentUsername == null) return 0;
+  /// Accurate area-based dashboard rows
+  Future<List<Map<String, dynamic>>> getDashboardRows() async {
+    if (_currentUsername == null) return [];
     final database = await db;
-    final result = Sqflite.firstIntValue(await database.rawQuery(
-      'SELECT COUNT(*) FROM paths WHERE image_id = ? AND username = ? AND is_colored = 1',
-      [imageId, _currentUsername],
-    ));
-    return result ?? 0;
+    final rows = await database.rawQuery('''
+      SELECT 
+        i.id, i.title, i.total_paths, i.total_area,
+        COALESCE(SUM(p.area), 0) AS sum_area,
+        COALESCE(SUM(CASE WHEN p.is_colored = 1 THEN p.area ELSE 0 END), 0) AS colored_area
+      FROM images i
+      LEFT JOIN paths p ON p.image_id = i.id AND p.username = i.username
+      WHERE i.username = ?
+      GROUP BY i.id, i.title, i.total_paths, i.total_area
+      ORDER BY i.id
+    ''', [_currentUsername]);
+
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      final total = ((r['total_area'] as num?)?.toDouble() ?? 0).clamp(0, 1e10);
+      final colored = ((r['colored_area'] as num?)?.toDouble() ?? 0)
+          .clamp(0.0, total);
+      out.add({
+        'id': r['id'],
+        'title': r['title'],
+        'total_paths': r['total_paths'],
+        'total_area': total,
+        'colored_area': colored,
+      });
+    }
+    return out;
   }
 
-  /// Get total path count for an image
-  Future<int> getTotalPathsForImage(String imageId) async {
-    if (_currentUsername == null) return 0;
-    final database = await db;
-    final result = Sqflite.firstIntValue(await database.rawQuery(
-      'SELECT COUNT(*) FROM paths WHERE image_id = ? AND username = ?',
-      [imageId, _currentUsername],
-    ));
-    return result ?? 0;
-  }
-
-  // -----------------------
-  // Debug
-  // -----------------------
-
+  // -------------------------------------------------------------------
+  //  DEBUG + UTIL
+  // -------------------------------------------------------------------
   Future<void> debugDumpImages() async {
     if (_currentUsername == null) return;
     final database = await db;
-    final images = await database.query('images', where: 'username = ?', whereArgs: [_currentUsername]);
-    
+    final imgs =
+        await database.query('images', where: 'username = ?', whereArgs: [_currentUsername]);
+
     debugPrint('═══════════════════════════════════════════════════════');
-    debugPrint('[DB DEBUG] Images for user: $_currentUsername (count: ${images.length})');
+    debugPrint('[DB DEBUG] Images for user: $_currentUsername (${imgs.length})');
     debugPrint('═══════════════════════════════════════════════════════');
-    
-    for (var im in images) {
-      final id = im['id'] as String;
-      final title = im['title'] as String;
-      final totalPaths = im['total_paths'] as int;
+    for (var im in imgs) {
+      final id = im['id'];
       final totalArea = (im['total_area'] as num?)?.toDouble() ?? 0.0;
-      
-      // Get colored area
       final coloredAreaRows = await database.rawQuery(
-        'SELECT SUM(area) AS colored_area FROM paths WHERE image_id = ? AND username = ? AND is_colored = 1',
-        [id, _currentUsername]
+        'SELECT SUM(area) AS ca FROM paths WHERE image_id = ? AND username = ? AND is_colored = 1',
+        [id, _currentUsername],
       );
-      final coloredArea = (coloredAreaRows.isNotEmpty ? (coloredAreaRows.first['colored_area'] as num?)?.toDouble() : null) ?? 0.0;
-      
-      // Get colored count
-      final coloredCount = await getColoredCountForImage(id);
-      
-      final percent = totalArea > 0 ? (coloredArea / totalArea * 100).round() : 0;
-      
-      debugPrint('');
-      debugPrint('Image: $title');
-      debugPrint('  ID: $id');
-      debugPrint('  Total paths: $totalPaths');
-      debugPrint('  Colored paths: $coloredCount');
-      debugPrint('  Total area: ${totalArea.toStringAsFixed(2)}');
-      debugPrint('  Colored area: ${coloredArea.toStringAsFixed(2)}');
-      debugPrint('  Progress: $percent%');
-      debugPrint('───────────────────────────────────────────────────────');
+      final colored = (coloredAreaRows.first['ca'] as num?)?.toDouble() ?? 0.0;
+      final pct = totalArea > 0 ? (colored / totalArea * 100).clamp(0, 100) : 0;
+      debugPrint(
+          'Image: $id  → totalArea=$totalArea colored=$colored progress=${pct.toStringAsFixed(1)}%');
     }
-    
-    debugPrint('═══════════════════════════════════════════════════════');
   }
 
-  /// Clear all data for current user (useful for testing)
   Future<void> clearUserData() async {
     if (_currentUsername == null) return;
     final database = await db;
-    
     await database.delete('paths', where: 'username = ?', whereArgs: [_currentUsername]);
     await database.delete('images', where: 'username = ?', whereArgs: [_currentUsername]);
-    
-    debugPrint('[DB] Cleared all data for user: $_currentUsername');
+    debugPrint('[DB] Cleared all data for $_currentUsername');
   }
 
-  /// Close database connection
   Future<void> close() async {
-    final database = _db;
-    if (database != null) {
-      await database.close();
+    if (_db != null) {
+      await _db!.close();
       _db = null;
-      debugPrint('[DB] Database closed');
     }
   }
 }
