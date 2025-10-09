@@ -83,7 +83,7 @@ class DbService {
         is_colored INTEGER DEFAULT 0,
         color TEXT,
         area REAL DEFAULT 0,
-        PRIMARY KEY (id, username),
+        PRIMARY KEY (id, image_id, username),
         FOREIGN KEY(image_id, username) REFERENCES images(id, username)
       )
     ''');
@@ -327,12 +327,12 @@ class DbService {
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
       
-      // Update area if already exists
+      // Update area if already exists (IMPORTANT: include image_id in WHERE)
       batch.update(
         'paths',
         {'area': e.value},
-        where: 'id = ? AND username = ?',
-        whereArgs: [e.key, _currentUsername],
+        where: 'id = ? AND image_id = ? AND username = ?',
+        whereArgs: [e.key, imageId, _currentUsername],
       );
     }
     await batch.commit(noResult: true);
