@@ -1,5 +1,6 @@
 // lib/pages/dashboard_page.dart
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
@@ -28,7 +29,11 @@ class _DashboardPageState extends State<DashboardPage> {
   List<bool> _unlocked = [];
   static const int _unlockThreshold = 90;
 
-  // REMOVED gamma and boost - use raw percentages
+  // ✅ COMPLETELY REDESIGNED: Progressive boost system for smooth, consistent progression
+  // Lower value = more aggressive boost throughout the range
+  static const double _progressGamma = 0.55; // Increased boost significantly
+  static const double _minVisibleProgress = 12.0; // Minimum visible progress when any coloring is done
+
   static const String _fallbackRheumaticInfoText = '''
 Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
 
@@ -81,10 +86,13 @@ This app is for educational/demo purposes only.
       if (!mounted) return;
       setState(() => _rows = rows);
 
-      // Compute overall weighted by area (raw area-based)
+      // ✅ FIXED: Use same boost function for overall progress
       final totalAreaSum = _rows.fold<double>(0.0, (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0));
       final coloredAreaSum = _rows.fold<double>(0.0, (a, r) => a + ((r['colored_area'] as num?)?.toDouble() ?? 0.0));
-      _overall = totalAreaSum == 0 ? 0 : (coloredAreaSum / totalAreaSum * 100).round();
+      final overallRaw = totalAreaSum == 0 ? 0.0 : (coloredAreaSum / totalAreaSum * 100.0);
+      
+      // Use the exact same boost function for consistency
+      _overall = _boostProgressPercent(overallRaw);
 
       _computeUnlockedStates();
     } catch (e, st) {
@@ -93,7 +101,7 @@ This app is for educational/demo purposes only.
     if (mounted) setState(() => _loading = false);
   }
 
-  /// Compute unlocked states using RAW percent (no scaling)
+  /// ✅ FIXED: Compute unlocked states using SAME boost function consistently
   void _computeUnlockedStates() {
     _unlocked = List<bool>.filled(_rows.length, false);
     if (_rows.isEmpty) return;
@@ -104,7 +112,10 @@ This app is for educational/demo purposes only.
       final prevColored = (prev['colored_area'] as num?)?.toDouble() ?? 0.0;
       final prevRawPercent = prevTotal == 0 ? 0.0 : (prevColored / prevTotal * 100.0);
 
-      if (_unlocked[i - 1] && prevRawPercent >= _unlockThreshold) {
+      // ✅ Use same boost function for unlock logic - CONSISTENT everywhere
+      final prevDisplay = _boostProgressPercent(prevRawPercent);
+
+      if (_unlocked[i - 1] && prevDisplay >= _unlockThreshold) {
         _unlocked[i] = true;
       } else {
         _unlocked[i] = false;
@@ -179,13 +190,57 @@ This app is for educational/demo purposes only.
     return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
+  // ✅ UPDATED: Color scheme for percentage boxes
   Color _percentColor(int percent) {
     if (percent == 0) return Colors.grey;
-    if (percent <= 25) return Colors.red;
-    if (percent <= 50) return Colors.orange;
-    if (percent <= 75) return Colors.blue;
-    if (percent < 100) return Colors.purple;
+    if (percent <= 20) return Colors.red;
+    if (percent <= 50) return Colors.blue;
+    if (percent <= 85) return Colors.amber;
     return Colors.green;
+  }
+
+  /// ✅ COMPLETELY REDESIGNED: Smooth, consistent progress boost across ALL ranges
+  /// This single function is used EVERYWHERE for consistency:
+  /// - Individual image progress display
+  /// - Overall progress calculation
+  /// - Unlock logic
+  /// NO MORE STUCK PROGRESS - smooth progression from 0 to 100%
+  int _boostProgressPercent(double rawPercent) {
+    // Handle edge cases
+    if (rawPercent <= 0.0) return 0;
+    if (rawPercent >= 99.5) return 100; // Almost complete = 100%
+    
+    // ✅ Apply consistent gamma boost across entire range
+    final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
+    double boosted = math.pow(normalized, _progressGamma) * 100.0;
+    
+    // ✅ Ensure minimum visible progress for ANY coloring activity
+    if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
+      boosted = _minVisibleProgress;
+    }
+    
+    // ✅ CRITICAL FIX: Add smoothing in mid-to-high ranges to prevent plateaus
+    // This ensures continuous visible progress even when coloring small areas
+    if (rawPercent >= 40.0 && rawPercent < 95.0) {
+      // Blend with slightly more aggressive boost in this range
+      final midRangeBoost = math.pow(normalized, _progressGamma * 0.85) * 100.0;
+      final blendFactor = 0.3; // 30% more aggressive
+      boosted = boosted * (1 - blendFactor) + midRangeBoost * blendFactor;
+    }
+    
+    // ✅ Final smoothing: ensure we never show 100% unless truly near complete
+    if (boosted >= 99.0 && rawPercent < 95.0) {
+      boosted = 98.0;
+    }
+    
+    final result = boosted.round().clamp(0, 100);
+    
+    // Debug logging to track progress consistency
+    if (rawPercent > 0) {
+      debugPrint('[Progress] Raw: ${rawPercent.toStringAsFixed(2)}% -> Display: $result%');
+    }
+    
+    return result;
   }
 
   Future<void> _logout() async {
@@ -218,9 +273,12 @@ This app is for educational/demo purposes only.
     final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
     final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
 
-    // Use RAW percent for both display and progress bar
+    // ✅ Calculate raw percent and apply THE SAME boost function everywhere
     final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
-    final displayPercent = rawPercent.round().clamp(0, 100);
+    final displayPercent = _boostProgressPercent(rawPercent);
+
+    // Debug log for this specific row
+    debugPrint('[Row: $title] Total: $totalArea, Colored: $coloredArea, Raw: ${rawPercent.toStringAsFixed(2)}%, Display: $displayPercent%');
 
     final unlocked = (index < _unlocked.length) ? _unlocked[index] : (index == 0);
     final rowOpacity = unlocked ? 1.0 : 0.45;
@@ -276,22 +334,35 @@ This app is for educational/demo purposes only.
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
-                          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))),
+                          Expanded(
+                            child: LinearProgressIndicator(
+                              value: totalArea == 0 ? 0 : math.min(1.0, (displayPercent / 100.0)),
+                              minHeight: 8,
+                              backgroundColor: Colors.grey.shade200,
+                              color: Colors.teal,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), color: pillColor),
-                            child: Text('$displayPercent%', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: pillColor,
+                            ),
+                            child: Text(
+                              '$displayPercent%',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: totalArea == 0 ? 0 : (coloredArea / totalArea).clamp(0.0, 1.0),
-                        minHeight: 8,
-                        backgroundColor: Colors.grey.shade200,
-                        color: Colors.teal,
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -398,14 +469,18 @@ This app is for educational/demo purposes only.
                     child: Column(
                       children: [
                         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Text('Your colouring progress', style: TextStyle(color: Colors.white, fontSize: headingSize, fontWeight: FontWeight.w800)),
+                          Text('Your colouring progress', style: TextStyle(color: Color(0xFF2D7A72), fontSize: headingSize, fontWeight: FontWeight.w700)),
                           const SizedBox(width: 10),
-                          Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(12)), child: Text('$_overall%', style: TextStyle(fontSize: percentSize, fontWeight: FontWeight.w800, color: Colors.white))),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), 
+                            decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(12)), 
+                            child: Text('$_overall%', style: TextStyle(fontSize: percentSize, fontWeight: FontWeight.w700, color: Color(0xFF2D7A72)))
+                          ),
                         ]),
                         const SizedBox(height: 8),
                         _learnMoreEmbedded(),
                         const SizedBox(height: 6),
-                        const Text('Keep coloring to unlock new pages!', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                        const Text('Keep coloring to unlock new pages!', style: TextStyle(color: Color(0xFF2D7A72), fontSize: 14, fontWeight: FontWeight.w500)),
                       ],
                     ),
                   ),
