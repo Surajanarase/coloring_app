@@ -1,6 +1,5 @@
 // lib/pages/dashboard_page.dart
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
@@ -27,13 +26,9 @@ class _DashboardPageState extends State<DashboardPage> {
   int _overall = 0;
 
   List<bool> _unlocked = [];
-  static const int _unlockThreshold = 90; // uses scaled/display percent
+  static const int _unlockThreshold = 90;
 
-  // --- TUNABLE visual scaling ---
-  // Lower gamma -> stronger visual boost. boost nudges very small progress up.
-  static const double _gamma = 0.22;
-  static const double _boost = 6.0;
-
+  // REMOVED gamma and boost - use raw percentages
   static const String _fallbackRheumaticInfoText = '''
 Rheumatic diseases (rheumatoid conditions) are autoimmune disorders that cause inflammation of joints and other organs.
 
@@ -98,7 +93,7 @@ This app is for educational/demo purposes only.
     if (mounted) setState(() => _loading = false);
   }
 
-  /// Compute unlocked states using the **scaled/display percent** of the previous image.
+  /// Compute unlocked states using RAW percent (no scaling)
   void _computeUnlockedStates() {
     _unlocked = List<bool>.filled(_rows.length, false);
     if (_rows.isEmpty) return;
@@ -109,9 +104,7 @@ This app is for educational/demo purposes only.
       final prevColored = (prev['colored_area'] as num?)?.toDouble() ?? 0.0;
       final prevRawPercent = prevTotal == 0 ? 0.0 : (prevColored / prevTotal * 100.0);
 
-      final prevDisplay = _computeDisplayPercentFromRaw(prevRawPercent);
-
-      if (_unlocked[i - 1] && prevDisplay >= _unlockThreshold) {
+      if (_unlocked[i - 1] && prevRawPercent >= _unlockThreshold) {
         _unlocked[i] = true;
       } else {
         _unlocked[i] = false;
@@ -147,7 +140,8 @@ This app is for educational/demo purposes only.
         final pathAreas = <String, double>{};
         for (final pid in pathService.paths.keys) {
           final b = pathService.paths[pid]!.getBounds();
-          pathAreas[pid] = b.width * b.height;
+          final area = (b.width * b.height);
+          pathAreas[pid] = area.isFinite ? area : 0.0;
         }
         final totalArea = pathAreas.values.fold(0.0, (a, b) => a + b);
         await _db.upsertImage(asset, _titleFromAsset(asset), pathAreas.length, totalArea: totalArea);
@@ -186,9 +180,11 @@ This app is for educational/demo purposes only.
   }
 
   Color _percentColor(int percent) {
-    if (percent <= 20) return Colors.red;
-    if (percent <= 50) return Colors.blue;
-    if (percent <= 90) return Colors.orange;
+    if (percent == 0) return Colors.grey;
+    if (percent <= 25) return Colors.red;
+    if (percent <= 50) return Colors.orange;
+    if (percent <= 75) return Colors.blue;
+    if (percent < 100) return Colors.purple;
     return Colors.green;
   }
 
@@ -216,32 +212,15 @@ This app is for educational/demo purposes only.
     );
   }
 
-  /// Convert a raw percent (0..100) computed from area -> display percent (0..100)
-  /// using gamma correction + small boost so mid/low values appear more "filled".
-  int _computeDisplayPercentFromRaw(double rawPercent) {
-    final normalized = (rawPercent.clamp(0.0, 100.0) / 100.0);
-    final scaled = math.pow(normalized, _gamma) * 100.0;
-    double display;
-    if (rawPercent >= 95.0) {
-      display = 100.0;
-    } else {
-      display = scaled;
-    }
-    if (rawPercent > 0 && display < _boost) display += _boost;
-    return display.round().clamp(0, 100);
-  }
-
   Widget _buildRow(Map<String, dynamic> row, int index) {
     final id = row['id'] as String;
     final title = row['title'] as String? ?? id;
     final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
     final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
 
-    // Raw percent used for LinearProgressIndicator (accurate area fraction)
+    // Use RAW percent for both display and progress bar
     final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
-
-    // Display percent uses perceptual scaling
-    final displayPercent = _computeDisplayPercentFromRaw(rawPercent);
+    final displayPercent = rawPercent.round().clamp(0, 100);
 
     final unlocked = (index < _unlocked.length) ? _unlocked[index] : (index == 0);
     final rowOpacity = unlocked ? 1.0 : 0.45;
@@ -309,21 +288,22 @@ This app is for educational/demo purposes only.
                       ),
                       const SizedBox(height: 8),
                       LinearProgressIndicator(
-                        value: totalArea == 0 ? 0 : (coloredArea / totalArea),
+                        value: totalArea == 0 ? 0 : (coloredArea / totalArea).clamp(0.0, 1.0),
                         minHeight: 8,
                         backgroundColor: Colors.grey.shade200,
                         color: Colors.teal,
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        totalArea == 0 ? 'Not started • Tap to open' : (displayPercent < 100 ? 'In progress • Tap to continue' : 'Completed • Tap to view'),
-                        style: TextStyle(color: Colors.grey.shade700),
+                        displayPercent == 0 
+                            ? 'Not started • Tap to open' 
+                            : (displayPercent < 100 ? 'In progress ($displayPercent%) • Tap to continue' : 'Completed • Tap to view'),
+                        style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
                       )
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                // 3-dot removed
               ],
             ),
           ),
@@ -346,7 +326,7 @@ This app is for educational/demo purposes only.
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: const [
-              Icon(Icons.menu, color: Colors.white),
+              Icon(Icons.menu_book, color: Colors.white),
               SizedBox(width: 8),
               Text('Learn More', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
               SizedBox(width: 6),

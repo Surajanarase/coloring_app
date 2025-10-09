@@ -35,7 +35,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
   bool _loading = true;
   Color? _selectedColor;
-  String _currentTool = 'color'; // 'color' | 'eraser' | 'clear'
+  String _currentTool = 'color';
 
   static const double _viewerWidth = 360;
   static const double _viewerHeight = 520;
@@ -43,12 +43,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   final GlobalKey _containerKey = GlobalKey();
   final Map<String, String> _originalFills = {};
 
-  // zoom & transform
   final TransformationController _transformationController = TransformationController();
   bool _isZoomed = false;
   AnimationController? _animController;
 
-  // backup of original SVG
   String? _originalSvgString;
 
   @override
@@ -73,7 +71,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     super.dispose();
   }
 
-  /// Load SVG, seed DB, and apply previously saved colors
   Future<void> _load() async {
     await _svgService.load();
     _originalSvgString = _svgService.getSvgString();
@@ -82,14 +79,14 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       _buildPathsAndHitTest();
       final imageId = widget.assetPath;
 
-      // compute areas for all paths
       final tmp = PathService();
       tmp.buildPathsFromDoc(_svgService.doc!);
       final Map<String, double> pathAreas = {};
       for (final pid in tmp.paths.keys) {
         try {
           final b = tmp.paths[pid]!.getBounds();
-          pathAreas[pid] = (b.width * b.height).isFinite ? b.width * b.height : 0.0;
+          final area = b.width * b.height;
+          pathAreas[pid] = area.isFinite ? area : 0.0;
         } catch (_) {
           pathAreas[pid] = 0.0;
         }
@@ -99,12 +96,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       await _db.upsertImage(imageId, widget.title ?? imageId.split('/').last, pathAreas.length, totalArea: totalArea);
       await _db.insertPathsForImage(imageId, pathAreas);
 
-      // store original fills
       for (final pid in tmp.paths.keys) {
         _originalFills[pid] = _getOriginalFillForElement(pid);
       }
 
-      // restore colors from DB
+      // Restore colors from DB
       final coloredRows = await _db.getColoredPathsForImage(imageId);
       for (final row in coloredRows) {
         final pid = row['id'] as String;
@@ -149,7 +145,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
   Offset _computeLocalOffset(RenderBox box, Offset globalPos) => box.globalToLocal(globalPos);
 
-  /// Handle tap coloring / erasing
   Future<void> _onTapAt(Offset localPos, Size widgetSize) async {
     if (_hitTestService == null) return;
     final hitId = _hitTestService!.hitTest(localPos, widgetSize);
@@ -202,62 +197,123 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     });
   }
 
-  /// Clear all colors from canvas & DB
+  /// ✅ FIXED: Clear all colors and PROPERLY sync DB
   Future<void> _clearCanvasAll() async {
     if (_svgService.doc == null) return;
+    
+    if (!mounted) return;
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear Canvas?'),
+        content: const Text('This will remove all colors from this image. Are you sure?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) return;
+
     _tryPushSnapshot(_svgService.getSvgString());
     final imageId = widget.assetPath;
 
     try {
+      // Step 1: Reset ALL paths in DB to uncolored
       await _db.resetImageProgress(imageId);
-    } catch (_) {}
+      
+      // Step 2: Reload original SVG
+      if (_originalSvgString != null) {
+        _svgService.setSvgString(_originalSvgString!);
+      } else {
+        await _svgService.load();
+      }
 
-    if (_originalSvgString != null) {
-      _svgService.setSvgString(_originalSvgString!);
-    } else {
-      await _svgService.load();
-    }
+      // Step 3: Rebuild paths
+      _buildPathsAndHitTest();
+      
+      // Step 4: Refresh original fills map
+      _originalFills.clear();
+      for (final pid in _pathService.paths.keys) {
+        _originalFills[pid] = _getOriginalFillForElement(pid);
+      }
 
-    _buildPathsAndHitTest();
-    _originalFills.clear();
-    for (final pid in _pathService.paths.keys) {
-      _originalFills[pid] = _getOriginalFillForElement(pid);
+      // Step 5: CRITICAL - Verify DB is cleared by re-syncing
+      await _restoreDbFromSvg();
+
+    } catch (e) {
+      debugPrint('Error clearing canvas: $e');
     }
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Canvas cleared')));
-  }
-
-  /// ✅ FIXED: Properly saves DB before closing
-  Future<void> _saveProgress() async {
-    // Rebuild DB state from actual SVG before exiting
-    await _restoreDbFromSvg();
-
-    // Ensure DB transaction finishes
-    await Future.delayed(const Duration(milliseconds: 120));
-
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Progress saved successfully! 🎨')),
+      const SnackBar(content: Text('Canvas cleared! All progress reset to 0%'), duration: Duration(seconds: 2)),
+    );
+  }
+
+  /// ✅ FIXED: Save and sync DB before closing
+  Future<void> _saveProgress() async {
+    // Sync DB with actual SVG state
+    await _restoreDbFromSvg();
+
+    // Wait for DB write
+    await Future.delayed(const Duration(milliseconds: 150));
+
+    if (!mounted) return;
+    
+    // Show progress info
+    final coloredCount = await _db.getColoredCountForImage(widget.assetPath);
+    final totalCount = await _db.getTotalPathsForImage(widget.assetPath);
+    final percent = totalCount > 0 ? ((coloredCount / totalCount) * 100).round() : 0;
+
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Progress saved! $percent% complete ($coloredCount/$totalCount paths colored)'),
+        duration: const Duration(seconds: 2),
+      ),
     );
 
+    if (!mounted) return;
     Navigator.of(context).pop();
   }
 
-  /// Scan current SVG and update DB to match actual fills
+  /// ✅ FIXED: Scan current SVG and update DB accurately
   Future<void> _restoreDbFromSvg() async {
     final doc = _svgService.doc;
     if (doc == null) return;
+    
+    // Get all drawable elements with IDs
     for (final elem in doc.findAllElements('*')) {
       final id = elem.getAttribute('id');
       if (id == null || id.isEmpty) continue;
 
+      // Check if this is a drawable element
+      final name = elem.name.local.toLowerCase();
+      if (!['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline'].contains(name)) {
+        continue;
+      }
+
       String? fill;
+      
+      // First check 'fill' attribute
       final f = elem.getAttribute('fill');
       if (f != null && f.trim().isNotEmpty) {
         fill = f.trim();
       } else {
+        // Check 'style' attribute for fill
         final style = elem.getAttribute('style');
         if (style != null && style.trim().isNotEmpty) {
           for (final entry in style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty)) {
@@ -269,15 +325,19 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         }
       }
 
-      if (fill == null || fill.isEmpty || fill == 'none') {
+      // Determine if colored or not
+      final originalFill = _originalFills[id] ?? 'none';
+      
+      if (fill == null || fill.isEmpty || fill == 'none' || fill == originalFill) {
+        // Not colored - mark as uncolored
         await _db.markPathUncolored(id);
       } else {
+        // Colored with a different fill - mark as colored
         await _db.markPathColored(id, fill);
       }
     }
   }
 
-  /// Undo one coloring step
   void _undoOneStep() async {
     String? xml;
     try {
@@ -530,7 +590,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                         SizedBox(width: pillSpacing),
                         SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'eraser'), icon: Icons.cleaning_services_outlined, label: 'Eraser', active: _currentTool == 'eraser')),
                         SizedBox(width: pillSpacing),
-                        SizedBox(width: pillWidth, child: _toolPill(onTap: _clearCanvasAll, icon: Icons.delete_outline, label: 'Clear', active: _currentTool == 'clear')),
+                        SizedBox(width: pillWidth, child: _toolPill(onTap: _clearCanvasAll, icon: Icons.delete_outline, label: 'Clear', active: false)),
                       ],
                     ),
                   ),
