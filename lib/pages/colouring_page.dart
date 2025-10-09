@@ -163,7 +163,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       final colorHex = _colorToHex(_selectedColor!);
       _svgService.applyFillToElementById(hitId, colorHex);
       await _db.markPathColored(hitId, colorHex, imageId: widget.assetPath);
-    } else if (_currentTool == 'eraser') {
+    } else if (_currentTool == 'eraser' || _currentTool == 'clear') {
+      // treat individual taps as eraser when 'clear' is selected (keeps behavior intuitive)
       final orig = _originalFills[hitId] ?? 'none';
       _svgService.applyFillToElementById(hitId, orig);
       await _db.markPathUncolored(hitId, imageId: widget.assetPath);
@@ -572,7 +573,18 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                         SizedBox(width: pillSpacing),
                         SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'eraser'), icon: Icons.cleaning_services_outlined, label: 'Eraser', active: _currentTool == 'eraser')),
                         SizedBox(width: pillSpacing),
-                        SizedBox(width: pillWidth, child: _toolPill(onTap: _clearCanvasAll, icon: Icons.delete_outline, label: 'Clear', active: false)),
+                        SizedBox(
+                          width: pillWidth,
+                          child: _toolPill(
+                            onTap: () {
+                              setState(() => _currentTool = 'clear');
+                              _clearCanvasAll();
+                            },
+                            icon: Icons.delete_outline,
+                            label: 'Clear',
+                            active: _currentTool == 'clear',
+                          ),
+                        ),
                       ],
                     ),
                   ),

@@ -30,7 +30,7 @@ class _DashboardPageState extends State<DashboardPage> {
   static const int _unlockThreshold = 90;
 
   // Boost parameters (optional visual boost)
-  static const double _progressGamma = 0.60;
+  static const double _progressGamma = 0.70;
   static const double _minVisibleProgress = 8.0;
   static const double _eps = 0.000001; // tolerance for floating comparisons
 
