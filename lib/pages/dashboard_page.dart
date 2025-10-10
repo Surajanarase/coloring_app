@@ -9,6 +9,7 @@ import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
 import 'colouring_page.dart';
+import 'quiz_page.dart';  // ADD THIS IMPORT
 import '../auth/login_screen.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -25,9 +26,11 @@ class _DashboardPageState extends State<DashboardPage> {
   List<Map<String, dynamic>> _rows = [];
   bool _loading = true;
   int _overall = 0;
+  bool _quizAvailable = false;
 
   List<bool> _unlocked = [];
   static const int _unlockThreshold = 90;
+  static const int _quizUnlockThreshold = 80;
 
   static const double _progressGamma = 0.85;
   static const double _minVisibleProgress = 5.0;
@@ -49,6 +52,10 @@ class _DashboardPageState extends State<DashboardPage> {
     } catch (e) {
       debugPrint('[Dashboard] Debug dump failed: $e');
     }
+    
+    // Check if quiz should be shown
+    _checkAndShowQuizIfAvailable();
+    
     debugPrint('[Dashboard] ============ INITIALIZATION COMPLETE ============');
   }
 
@@ -97,6 +104,136 @@ class _DashboardPageState extends State<DashboardPage> {
       debugPrint('[Dashboard] Error loading rows: $e\n$st');
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  void _checkAndShowQuizIfAvailable() {
+    if (_rows.isEmpty) {
+      setState(() => _quizAvailable = false);
+      return;
+    }
+
+    // Get last image
+    final lastImage = _rows.last;
+    final totalArea = (lastImage['total_area'] as num?)?.toDouble() ?? 0.0;
+    final coloredArea = (lastImage['colored_area'] as num?)?.toDouble() ?? 0.0;
+    final storedPercent = (lastImage['display_percent'] as num?)?.toDouble() ?? 0.0;
+
+    int displayPercent;
+    if (storedPercent > 0 && storedPercent <= 100) {
+      displayPercent = storedPercent.round();
+    } else {
+      final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
+      displayPercent = _boostProgressPercent(rawPercent, coloredArea, totalArea);
+    }
+
+    final wasAvailable = _quizAvailable;
+    _quizAvailable = displayPercent >= _quizUnlockThreshold;
+
+    debugPrint('[Dashboard] Quiz available: $_quizAvailable (last image: $displayPercent%)');
+
+    // Show quiz dialog if available and wasn't available before (newly unlocked)
+    if (_quizAvailable && !wasAvailable && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showQuizUnlockedDialog();
+      });
+    }
+  }
+
+  Future<void> _showQuizUnlockedDialog() async {
+    final shouldTakeQuiz = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.emoji_events, color: Colors.amber, size: 32),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Quiz Unlocked! 🎉',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Text(
+              'Congratulations!',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'You have completed most of the colouring pages! 🎨',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 15),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Would you like to take a fun quiz to test what you learned about keeping your heart healthy? ❤️',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Maybe Later'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text(
+              'Take Quiz Now!',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldTakeQuiz == true && mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => QuizPage(username: widget.username),
+        ),
+      );
+      // Reload after quiz
+      await _loadRows();
+     _checkAndShowQuizIfAvailable();
+    }
+  }
+
+  String _getMotivationalMessage() {
+    if (_rows.isEmpty) return 'Start your coloring journey! 🎨';
+    
+    if (_quizAvailable) {
+      return '🎉 Amazing! Quiz unlocked! Tap the button below to test your knowledge!';
+    }
+    
+    if (_overall == 0) {
+      return '🎨 Welcome! Start coloring the first page to begin your learning adventure!';
+    } else if (_overall < 20) {
+      return '🌟 Great start! Keep coloring to learn more about keeping your heart healthy!';
+    } else if (_overall < 40) {
+      return '👏 You\'re doing wonderful! Continue coloring to unlock new pages!';
+    } else if (_overall < 60) {
+      return '💪 Fantastic progress! You\'re learning so much about heart health!';
+    } else if (_overall < 80) {
+      return '🎯 Almost there! Keep going to unlock the quiz and test your knowledge!';
+    } else if (_overall < 95) {
+      return '⭐ Excellent work! Just a little more to complete all pages!';
+    } else if (_overall < 100) {
+      return '🏆 So close to 100%! Finish strong!';
+    } else {
+      return '🎊 Perfect! You completed everything! You\'re a heart health champion!';
+    }
   }
 
   Future<void> _debugPrintAssetManifest() async {
@@ -348,6 +485,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 );
                 debugPrint('[Dashboard] Returned from coloring page, reloading...');
                 await _loadRows();
+                _checkAndShowQuizIfAvailable();
               }
             : () {
                 if (mounted) {
@@ -468,38 +606,216 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _learnMoreEmbedded() {
-    return Center(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(28),
-        onTap: _openRheumaticInfo,
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)], 
-              begin: Alignment.topLeft, 
-              end: Alignment.bottomRight
+  Widget _buildProgressHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)], 
+            begin: Alignment.topLeft, 
+            end: Alignment.bottomRight
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x22000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center, 
+              children: [
+                const Text(
+                  'Your colouring progress', 
+                  style: TextStyle(
+                    color: Color(0xFF2D7A72), 
+                    fontSize: 22, 
+                    fontWeight: FontWeight.w700
+                  )
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12, 
+                    vertical: 6
+                  ), 
+                  decoration: BoxDecoration(
+                    color: Colors.white24, 
+                    borderRadius: BorderRadius.circular(12)
+                  ), 
+                  child: Text(
+                    '$_overall%', 
+                    style: const TextStyle(
+                      fontSize: 24, 
+                      fontWeight: FontWeight.w700, 
+                      color: Color(0xFF2D7A72)
+                    )
+                  )
+                ),
+              ]
             ),
-            borderRadius: BorderRadius.circular(28),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.menu_book, color: Colors.white),
-              SizedBox(width: 8),
-              Text(
-                'Learn More', 
-                style: TextStyle(
-                  color: Colors.white, 
-                  fontWeight: FontWeight.w700, 
-                  fontSize: 16
-                )
+            const SizedBox(height: 12),
+            
+            // Motivational Message with gradient background
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF2D7A72).withValues(alpha: 0.15),
+                    const Color(0xFF4BB0D6).withValues(alpha: 0.15),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  width: 1.5,
+                ),
               ),
-              SizedBox(width: 6),
-              Icon(Icons.chevron_right, color: Colors.white),
-            ],
-          ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
+                    ),
+                    child: const Icon(Icons.emoji_events, color: Color(0xFFFFB800), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _getMotivationalMessage(),
+                      style: const TextStyle(
+                        color: Color(0xFF1A5F57), 
+                        fontSize: 14, 
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 14),
+            
+            // Buttons Row - Learn More + Quiz (if available)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Learn More Button
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(28),
+                    onTap: _openRheumaticInfo,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)], 
+                          begin: Alignment.topLeft, 
+                          end: Alignment.bottomRight
+                        ),
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.menu_book, color: Colors.white, size: 18),
+                          SizedBox(width: 8),
+                          Text(
+                            'Learn More', 
+                            style: TextStyle(
+                              color: Colors.white, 
+                              fontWeight: FontWeight.w700, 
+                              fontSize: 15
+                            )
+                          ),
+                          SizedBox(width: 4),
+                          Icon(Icons.chevron_right, color: Colors.white, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Quiz Button (if available)
+                if (_quizAvailable) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => QuizPage(username: widget.username),
+                          ),
+                        );
+                        await _loadRows();
+                      _checkAndShowQuizIfAvailable();
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)], 
+                            begin: Alignment.topLeft, 
+                            end: Alignment.bottomRight
+                          ),
+                          borderRadius: BorderRadius.circular(28),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x44FF6B6B),
+                              blurRadius: 8,
+                              offset: Offset(0, 3),
+                            )
+                          ],
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.quiz, color: Colors.white, size: 18),
+                            SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Take Quiz', 
+                                style: TextStyle(
+                                  color: Colors.white, 
+                                  fontWeight: FontWeight.w700, 
+                                  fontSize: 15
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(Icons.arrow_forward, color: Colors.white, size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -507,9 +823,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    const double headingSize = 24;
-    const double percentSize = 24;
-
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -592,70 +905,7 @@ class _DashboardPageState extends State<DashboardPage> {
           : ListView(
               padding: const EdgeInsets.symmetric(vertical: 12),
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 14, 
-                      horizontal: 12
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)], 
-                        begin: Alignment.topLeft, 
-                        end: Alignment.bottomRight
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center, 
-                          children: [
-                            const Text(
-                              'Your colouring progress', 
-                              style: TextStyle(
-                                color: Color(0xFF2D7A72), 
-                                fontSize: headingSize, 
-                                fontWeight: FontWeight.w700
-                              )
-                            ),
-                            const SizedBox(width: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12, 
-                                vertical: 6
-                              ), 
-                              decoration: BoxDecoration(
-                                color: Colors.white24, 
-                                borderRadius: BorderRadius.circular(12)
-                              ), 
-                              child: Text(
-                                '$_overall%', 
-                                style: const TextStyle(
-                                  fontSize: percentSize, 
-                                  fontWeight: FontWeight.w700, 
-                                  color: Color(0xFF2D7A72)
-                                )
-                              )
-                            ),
-                          ]
-                        ),
-                        const SizedBox(height: 8),
-                        _learnMoreEmbedded(),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Keep coloring to unlock new pages!', 
-                          style: TextStyle(
-                            color: Color(0xFF2D7A72), 
-                            fontSize: 14, 
-                            fontWeight: FontWeight.w500
-                          )
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                _buildProgressHeader(),
                 const SizedBox(height: 8),
                 ..._rows.asMap().entries.map((e) => _buildRow(e.value, e.key)),
               ],
