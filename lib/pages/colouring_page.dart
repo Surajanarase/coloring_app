@@ -56,6 +56,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
+
+    // ensure DB operations are attributed to the correct user
+    _db.setCurrentUser(widget.username);
+
     _svgService = SvgService(assetPath: widget.assetPath);
     _transformationController.addListener(_onTransformChanged);
     _load();
@@ -77,11 +81,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
   Future<void> _load() async {
     debugPrint('[Load] ============ STARTING LOAD FOR ${widget.assetPath} ============');
-    
+
     // Step 1: Load pristine SVG
     await _svgService.load();
     _originalSvgString = _svgService.getSvgString();
-    
+
     if (_svgService.doc == null) {
       debugPrint('[Load] ERROR: Failed to load SVG document');
       if (mounted) setState(() => _loading = false);
@@ -95,7 +99,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     // Step 3: Build paths and calculate areas
     final tmp = PathService();
     tmp.buildPathsFromDoc(_svgService.doc!);
-    
+
     final Map<String, double> pathAreas = {};
     for (final pid in tmp.paths.keys) {
       try {
@@ -107,41 +111,64 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       }
     }
 
+    // Filter out insignificant paths (< 0.1% of average area)
+    final allAreas = pathAreas.values.where((a) => a > 0).toList();
+    if (allAreas.isNotEmpty) {
+      final avgArea = allAreas.fold<double>(0.0, (a, b) => a + b) / allAreas.length;
+      final minSignificantArea = avgArea * 0.001; // 0.1% of average
+      
+      final filteredAreas = <String, double>{};
+      int filteredCount = 0;
+      for (final entry in pathAreas.entries) {
+        if (entry.value >= minSignificantArea) {
+          filteredAreas[entry.key] = entry.value;
+        } else {
+          filteredCount++;
+        }
+      }
+      
+      if (filteredCount > 0) {
+        debugPrint('[Load] Filtered out $filteredCount tiny paths (< ${minSignificantArea.toStringAsFixed(2)} area)');
+        pathAreas.clear();
+        pathAreas.addAll(filteredAreas);
+      }
+    }
+
     final totalArea = pathAreas.values.fold<double>(0.0, (a, b) => a + b);
     final imageId = widget.assetPath;
-    
+
     debugPrint('[Load] Total paths: ${pathAreas.length}, Total area: $totalArea');
 
     // Step 4: Upsert to database
     await _db.upsertImage(
-      imageId, 
-      widget.title ?? imageId.split('/').last, 
-      pathAreas.length, 
-      totalArea: totalArea
+      imageId,
+      widget.title ?? imageId.split('/').last,
+      pathAreas.length,
+      totalArea: totalArea,
     );
     await _db.insertPathsForImage(imageId, pathAreas);
 
     // Step 5: Restore colored paths from database
     final coloredRows = await _db.getColoredPathsForImage(imageId);
     debugPrint('[Load] Found ${coloredRows.length} colored paths in database');
-    
+
     int restoredCount = 0;
     for (final row in coloredRows) {
       final pid = row['id'] as String;
       final colorHex = (row['color'] as String?) ?? '';
-      
+
       if (colorHex.isNotEmpty && colorHex != 'none') {
         _svgService.applyFillToElementById(pid, colorHex);
         restoredCount++;
         debugPrint('[Load] ✓ Restored $pid with color $colorHex');
       }
     }
-    
+
     debugPrint('[Load] Successfully restored $restoredCount/${coloredRows.length} paths');
 
     // Step 6: Build paths and hit test from modified SVG
     _buildPathsAndHitTest();
-    
+
     debugPrint('[Load] ============ LOAD COMPLETE ============');
 
     if (!mounted) return;
@@ -168,10 +195,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   }
 
   void _buildPathsAndHitTest() {
+    // use the proper service instance names
     _pathService.buildPathsFromDoc(_svgService.doc!);
     _hitTestService = HitTestService(
-      paths: _pathService.paths, 
-      viewBox: _svgService.viewBox
+      paths: _pathService.paths,
+      viewBox: _svgService.viewBox,
     );
   }
 
@@ -180,7 +208,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     if (attrFill != null && attrFill.trim().isNotEmpty) {
       return attrFill.trim();
     }
-    
+
     final style = elem.getAttribute('style');
     if (style != null && style.trim().isNotEmpty) {
       for (final entry in style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty)) {
@@ -189,16 +217,41 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         }
       }
     }
-    
+
     return 'none';
   }
 
-  Offset _computeLocalOffset(RenderBox box, Offset globalPos) => 
-    box.globalToLocal(globalPos);
+  /// Walk up parents to find computed fill (handles fills on `<g>` parents).
+  String _getComputedFillForElement(XmlElement elem) {
+    XmlElement? cur = elem;
+    while (cur != null) {
+      final attr = cur.getAttribute('fill');
+      if (attr != null && attr.trim().isNotEmpty) return attr.trim();
+
+      final style = cur.getAttribute('style');
+      if (style != null && style.trim().isNotEmpty) {
+        for (final entry in style.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty)) {
+          if (entry.startsWith('fill:')) {
+            return entry.substring(5).trim();
+          }
+        }
+      }
+
+      final parent = cur.parent;
+      if (parent is XmlElement) {
+        cur = parent;
+      } else {
+        cur = null;
+      }
+    }
+    return 'none';
+  }
+
+  Offset _computeLocalOffset(RenderBox box, Offset globalPos) => box.globalToLocal(globalPos);
 
   Future<void> _onTapAt(Offset localPos, Size widgetSize) async {
     if (_hitTestService == null) return;
-    
+
     final hitId = _hitTestService!.hitTest(localPos, widgetSize);
     if (hitId == null) {
       debugPrint('[Tap] No path hit');
@@ -209,9 +262,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     if (_currentTool == 'color' && _selectedColor == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick a color first!'))
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a color first!')));
       return;
     }
 
@@ -244,9 +295,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     try {
       return _colorService.colorToHex(c);
     } catch (_) {
-      final int r = (c.r * 255.0).round() & 0xFF;
-      final int g = (c.g * 255.0).round() & 0xFF;
-      final int b = (c.b * 255.0).round() & 0xFF;
+      // fallback using recommended Color getters
+      final int r = (c.r * 255.0).round() & 0xff;
+      final int g = (c.g * 255.0).round() & 0xff;
+      final int b = (c.b * 255.0).round() & 0xff;
       return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
     }
   }
@@ -268,14 +320,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         title: const Text('Clear Canvas?'),
         content: const Text('This will remove all colors from this image. Are you sure?'),
         actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false), 
-            child: const Text('Cancel')
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true), 
-            style: TextButton.styleFrom(foregroundColor: Colors.red), 
-            child: const Text('Clear')
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Clear'),
           ),
         ],
       ),
@@ -285,7 +334,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     debugPrint('[Clear] Starting canvas clear for ${widget.assetPath}');
     _tryPushSnapshot(_svgService.getSvgString());
-    
+
     final imageId = widget.assetPath;
 
     try {
@@ -306,21 +355,20 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
       // Re-capture original fills
       _captureOriginalFills();
-      
-      debugPrint('[Clear] ✓ Canvas cleared, ${_originalFills.length} paths reset');
 
+      debugPrint('[Clear] ✓ Canvas cleared, ${_originalFills.length} paths reset');
     } catch (e, st) {
       debugPrint('[Clear] ✗ Error: $e\n$st');
     }
 
     if (!mounted) return;
     setState(() {});
-    
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Canvas cleared! All progress reset to 0%'), 
-        duration: Duration(seconds: 2)
+        content: Text('Canvas cleared! All progress reset to 0%'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -329,11 +377,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     if (totalArea > 0 && (coloredArea + _eps >= totalArea)) {
       return 100;
     }
-    
+
     if (rawPercent >= 99.0) {
       return 100;
     }
-    
+
     if (rawPercent <= 0.0) return 0;
 
     final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
@@ -352,7 +400,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     if (boosted >= 99.0 && rawPercent < 97.0) {
       boosted = 98.0;
     }
-    
+
     if (boosted > 98.0 && rawPercent < 98.0) {
       boosted = 98.0;
     }
@@ -362,29 +410,26 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
   Future<void> _saveProgress() async {
     debugPrint('[Save] ============ STARTING SAVE FOR ${widget.assetPath} ============');
-    
+
     // Sync database with current SVG state
     await _syncDbWithCurrentSvgState();
 
     // Calculate display percentage
     final imageId = widget.assetPath;
     final coloredAreaQuery = await _db.getDashboardRows();
-    final row = coloredAreaQuery.firstWhere(
-      (r) => r['id'] == imageId, 
-      orElse: () => {}
-    );
-    
+    final row = coloredAreaQuery.firstWhere((r) => r['id'] == imageId, orElse: () => {});
+
     int displayPercent = 0;
-    
+
     if (row.isNotEmpty) {
       final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
       final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
-      
+
       final rawPercent = totalArea > 0 ? ((coloredArea / totalArea) * 100) : 0.0;
       displayPercent = _calculateDisplayPercent(rawPercent, coloredArea, totalArea);
-      
+
       await _db.updateImageDisplayPercent(imageId, displayPercent.toDouble());
-      
+
       debugPrint('[Save] ✓ Saved: display=$displayPercent%, raw=${rawPercent.toStringAsFixed(2)}%, '
           'colored=${coloredArea.toStringAsFixed(2)}, total=${totalArea.toStringAsFixed(2)}');
     }
@@ -397,8 +442,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Progress saved! $displayPercent% complete'), 
-        duration: const Duration(seconds: 2)
+        content: Text('Progress saved! $displayPercent% complete'),
+        duration: const Duration(seconds: 2),
       ),
     );
 
@@ -415,8 +460,12 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     debugPrint('[Sync] Starting DB sync...');
     int coloredCount = 0;
-    int uncoloredCount = 0;
     int skippedCount = 0;
+
+    // Get valid path IDs from database (these are the ones that passed area filter)
+    final imageId = widget.assetPath;
+    final allPathRows = await _db.getPathsForImage(imageId);
+    final validPathIds = allPathRows.map((r) => r['id'] as String).toSet();
 
     for (final elem in doc.findAllElements('*')) {
       final id = elem.getAttribute('id');
@@ -431,49 +480,124 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         continue;
       }
 
-      // Get current fill from SVG
-      final currentFill = _getOriginalFillForElement(elem);
-      
-      // Get original fill
-      final originalFill = _originalFills[id] ?? 'none';
-      final imageId = widget.assetPath;
+      // Skip paths that were filtered out due to small area
+      if (!validPathIds.contains(id)) {
+        skippedCount++;
+        continue;
+      }
 
-      // Determine if colored
-      final isColored = _isPathColored(currentFill, originalFill);
+      // Use computed fill (walks up parents) for more accurate detection
+      final currentFillRaw = _getComputedFillForElement(elem);
+      final originalFill = _originalFills[id] ?? 'none';
+
+      // Determine via helper (this normalizes internally)
+      final bool isColored = _isPathColored(currentFillRaw, originalFill);
 
       if (isColored) {
-        await _db.markPathColored(id, currentFill, imageId: imageId);
+        final toStore = _normalizeColor(currentFillRaw) ?? currentFillRaw;
+        await _db.markPathColored(id, toStore, imageId: imageId);
         coloredCount++;
       } else {
-        await _db.markPathUncolored(id, imageId: imageId);
-        uncoloredCount++;
+        // CRITICAL FIX: Do NOT automatically mark as uncolored during sync
+        // Only explicit eraser actions should uncolor paths
+        // This prevents accidental DB wipes when DOM color detection is imperfect
+        skippedCount++;
       }
     }
 
-    debugPrint('[Sync] ✓ Complete: $coloredCount colored, $uncoloredCount uncolored, $skippedCount skipped');
+    debugPrint('[Sync] ✓ Complete: $coloredCount colored, $skippedCount skipped (not auto-uncolored)');
+  }
+
+  /// Convert common color notations to normalized lowercase hex "#rrggbb".
+  /// Returns null for 'none'/'transparent' or if cannot parse.
+  String? _normalizeColor(String? raw) {
+    if (raw == null) return null;
+    final s = raw.toLowerCase().trim();
+    if (s.isEmpty) return null;
+    if (s == 'none' || s == 'transparent') return null;
+
+    // Handle rgb() notation
+    final rgb = RegExp(r'rgb\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)').firstMatch(s);
+    if (rgb != null) {
+      final r = int.parse(rgb.group(1)!).clamp(0, 255);
+      final g = int.parse(rgb.group(2)!).clamp(0, 255);
+      final b = int.parse(rgb.group(3)!).clamp(0, 255);
+      return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
+    }
+
+    // Handle rgba() notation (ignore alpha)
+    final rgba = RegExp(r'rgba\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*[\d.]+\s*\)').firstMatch(s);
+    if (rgba != null) {
+      final r = int.parse(rgba.group(1)!).clamp(0, 255);
+      final g = int.parse(rgba.group(2)!).clamp(0, 255);
+      final b = int.parse(rgba.group(3)!).clamp(0, 255);
+      return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
+    }
+
+    // Handle short hex notation (#abc)
+    final hexShort = RegExp(r'^#([0-9a-f]{3})$').firstMatch(s);
+    if (hexShort != null) {
+      final h = hexShort.group(1)!;
+      final r = h[0] + h[0];
+      final g = h[1] + h[1];
+      final b = h[2] + h[2];
+      return '#$r$g$b';
+    }
+
+    // Handle full hex notation (#aabbcc)
+    final hexFull = RegExp(r'^#([0-9a-f]{6})$').firstMatch(s);
+    if (hexFull != null) return '#${hexFull.group(1)!}';
+
+    // Handle common color names
+    final colorNames = {
+      'black': '#000000',
+      'white': '#ffffff',
+      'red': '#ff0000',
+      'green': '#008000',
+      'blue': '#0000ff',
+      'yellow': '#ffff00',
+      'cyan': '#00ffff',
+      'magenta': '#ff00ff',
+      'gray': '#808080',
+      'grey': '#808080',
+      'silver': '#c0c0c0',
+      'maroon': '#800000',
+      'olive': '#808000',
+      'lime': '#00ff00',
+      'aqua': '#00ffff',
+      'teal': '#008080',
+      'navy': '#000080',
+      'fuchsia': '#ff00ff',
+      'purple': '#800080',
+      'orange': '#ffa500',
+      'pink': '#ffc0cb',
+      'brown': '#a52a2a',
+    };
+
+    if (colorNames.containsKey(s)) {
+      return colorNames[s]!;
+    }
+
+    // fallback: return the raw trimmed string for unrecognized formats
+    return s;
   }
 
   bool _isPathColored(String currentFill, String originalFill) {
-    // Normalize fills
-    final current = currentFill.toLowerCase().trim();
-    final original = originalFill.toLowerCase().trim();
-    
-    // Not colored if empty or none
-    if (current.isEmpty || current == 'none' || current == 'transparent') {
-      return false;
-    }
-    
-    // Not colored if same as original
-    if (current == original) {
-      return false;
-    }
-    
-    // Check if it's a valid color (hex or rgb)
-    if (current.startsWith('#') || current.startsWith('rgb')) {
-      return true;
-    }
-    
-    return false;
+    // Normalize both colors for comparison
+    final nCurr = _normalizeColor(currentFill);
+    final nOrig = _normalizeColor(originalFill);
+
+    // Not colored if normalized current is null (none/transparent/empty)
+    if (nCurr == null || nCurr.isEmpty) return false;
+
+    // If both normalized and equal => not colored (same as original)
+    if (nOrig != null && nCurr == nOrig) return false;
+
+    // Special case: if original was 'none' and current has a color, it's colored
+    if (nOrig == null) return true;
+
+    // Otherwise, consider colored (current differs from original)
+    return true;
   }
 
   void _undoOneStep() async {
@@ -481,12 +605,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     try {
       xml = _colorService.popSnapshot();
     } catch (_) {}
-    
+
     if (xml == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nothing to undo'))
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing to undo')));
       return;
     }
 
@@ -496,9 +618,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Undone one step'))
-    );
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Undone one step')));
   }
 
   void _animateResetZoom() {
@@ -509,21 +629,16 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     _animController?.dispose();
     _animController = AnimationController(
-      vsync: this, 
-      duration: const Duration(milliseconds: 260)
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
     );
-    
-    final tween = Matrix4Tween(
-      begin: Matrix4.copy(_transformationController.value), 
-      end: Matrix4.identity()
-    );
-    
-    final animation = tween.animate(
-      CurvedAnimation(parent: _animController!, curve: Curves.easeOut)
-    );
-    
+
+    final tween = Matrix4Tween(begin: Matrix4.copy(_transformationController.value), end: Matrix4.identity());
+
+    final animation = tween.animate(CurvedAnimation(parent: _animController!, curve: Curves.easeOut));
+
     animation.addListener(() => _transformationController.value = animation.value);
-    
+
     _animController!.addStatusListener((s) {
       if (s == AnimationStatus.completed) {
         _transformationController.value = Matrix4.identity();
@@ -532,15 +647,15 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         setState(() => _isZoomed = false);
       }
     });
-    
+
     _animController!.forward();
   }
 
   Widget _toolPill({
-    required VoidCallback onTap, 
-    required IconData icon, 
-    required String label, 
-    required bool active
+    required VoidCallback onTap,
+    required IconData icon,
+    required String label,
+    required bool active,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -550,17 +665,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         decoration: BoxDecoration(
           color: active ? const Color(0xFFFFFBED) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: active ? Colors.deepPurple : Colors.grey.shade300, 
-            width: active ? 1.8 : 1.0
-          ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x11000000), 
-              blurRadius: 6, 
-              offset: Offset(0, 4)
-            )
-          ],
+          border: Border.all(color: active ? Colors.deepPurple : Colors.grey.shade300, width: active ? 1.8 : 1.0),
+          boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -568,24 +674,11 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
             Container(
               width: 36,
               height: 36,
-              decoration: BoxDecoration(
-                color: active ? Colors.deepPurple : Colors.grey.shade100, 
-                shape: BoxShape.circle
-              ),
-              child: Icon(
-                icon, 
-                size: 18, 
-                color: active ? Colors.white : Colors.black54
-              ),
+              decoration: BoxDecoration(color: active ? Colors.deepPurple : Colors.grey.shade100, shape: BoxShape.circle),
+              child: Icon(icon, size: 18, color: active ? Colors.white : Colors.black54),
             ),
             const SizedBox(width: 10),
-            Text(
-              label, 
-              style: TextStyle(
-                fontWeight: FontWeight.w700, 
-                color: active ? Colors.deepPurple : Colors.black87
-              )
-            ),
+            Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: active ? Colors.deepPurple : Colors.black87)),
           ],
         ),
       ),
@@ -593,9 +686,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   }
 
   Widget _circleHeaderButton({
-    required VoidCallback onTap, 
-    required IconData icon, 
-    required List<Color> gradient
+    required VoidCallback onTap,
+    required IconData icon,
+    required List<Color> gradient,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -604,19 +697,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         width: 56,
         height: 56,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: gradient, 
-            begin: Alignment.topLeft, 
-            end: Alignment.bottomRight
-          ),
+          gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
           shape: BoxShape.circle,
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x33000000), 
-              blurRadius: 8, 
-              offset: Offset(0, 4)
-            )
-          ],
+          boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
         ),
         child: Icon(icon, color: Colors.white, size: 28),
       ),
@@ -633,56 +716,36 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFFFFE8F2), Color(0xFFE8F7FF), Color(0xFFEFF7EE)], 
-              begin: Alignment.topLeft, 
-              end: Alignment.bottomRight
+              colors: [Color(0xFFFFE8F2), Color(0xFFE8F7FF), Color(0xFFEFF7EE)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
           ),
         ),
-        title: Text(
-          widget.title ?? widget.assetPath.split('/').last, 
-          style: const TextStyle(
-            fontSize: 20, 
-            fontWeight: FontWeight.w800, 
-            color: Colors.black87
-          )
-        ),
+        title: Text(widget.title ?? widget.assetPath.split('/').last,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87)),
         centerTitle: true,
         leading: Padding(
           padding: const EdgeInsets.only(left: 8.0),
-          child: _circleHeaderButton(
-            onTap: () => Navigator.of(context).pop(), 
-            icon: Icons.arrow_back, 
-            gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]
-          ),
+          child: _circleHeaderButton(onTap: () => Navigator.of(context).pop(), icon: Icons.arrow_back, gradient: const [Color(0xFFFF8A80), Color(0xFFFFC1A7)]),
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
-            child: _circleHeaderButton(
-              onTap: _saveProgress, 
-              icon: Icons.save, 
-              gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]
-            ),
+            child: _circleHeaderButton(onTap: _saveProgress, icon: Icons.save, gradient: const [Color(0xFF6EE7B7), Color(0xFF4DD0E1)]),
           )
         ],
       ),
     );
 
     if (_loading) {
-      return Scaffold(
-        appBar: header, 
-        body: const Center(child: CircularProgressIndicator())
-      );
+      return Scaffold(appBar: header, body: const Center(child: CircularProgressIndicator()));
     }
 
     final svgString = _svgService.getSvgString() ?? '';
     if (svgString.isEmpty) {
-      return Scaffold(
-        appBar: header, 
-        body: const Center(child: Text('Failed to load SVG'))
-      );
+      return Scaffold(appBar: header, body: const Center(child: Text('Failed to load SVG')));
     }
 
     const horizontalMargin = 12.0;
@@ -699,34 +762,21 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
               const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end, 
-                  children: [
-                    GestureDetector(
-                      onTap: _undoOneStep,
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)], 
-                            begin: Alignment.topLeft, 
-                            end: Alignment.bottomRight
-                          ),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0x33000000), 
-                              blurRadius: 8, 
-                              offset: Offset(0, 4)
-                            )
-                          ],
-                        ),
-                        child: const Icon(Icons.undo, color: Colors.black87),
+                child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  GestureDetector(
+                    onTap: _undoOneStep,
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
                       ),
+                      child: const Icon(Icons.undo, color: Colors.black87),
                     ),
-                  ]
-                ),
+                  ),
+                ]),
               ),
 
               const SizedBox(height: 8),
@@ -749,17 +799,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                           decoration: BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
-                              color: Colors.grey.shade200, 
-                              width: 1.4
-                            ),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x14000000), 
-                                blurRadius: 12, 
-                                offset: Offset(0, 6)
-                              )
-                            ],
+                            border: Border.all(color: Colors.grey.shade200, width: 1.4),
+                            boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
                           ),
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
@@ -778,11 +819,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                               minScale: 1.0,
                               maxScale: 6.0,
                               boundaryMargin: const EdgeInsets.all(80),
-                              child: SvgViewer(
-                                svgString: svgString, 
-                                viewBox: _svgService.viewBox, 
-                                showWidgetBorder: false
-                              ),
+                              child: SvgViewer(svgString: svgString, viewBox: _svgService.viewBox, showWidgetBorder: false),
                             ),
                           ),
                         ),
@@ -802,19 +839,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                 color: Colors.white,
                                 shape: BoxShape.circle,
                                 border: Border.all(color: Colors.grey.shade300),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x22000000), 
-                                    blurRadius: 6, 
-                                    offset: Offset(0, 2)
-                                  )
-                                ],
+                                boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 2))],
                               ),
-                              child: const Icon(
-                                Icons.center_focus_strong, 
-                                size: 18, 
-                                color: Colors.black87
-                              ),
+                              child: const Icon(Icons.center_focus_strong, size: 18, color: Colors.black87),
                             ),
                           ),
                         ),
@@ -837,42 +864,16 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                     width: effectiveWidth,
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)], 
-                        begin: Alignment.topLeft, 
-                        end: Alignment.bottomRight
-                      ),
+                      gradient: const LinearGradient(colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x11000000), 
-                          blurRadius: 10, 
-                          offset: Offset(0, 6)
-                        )
-                      ],
+                      boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SizedBox(
-                          width: pillWidth, 
-                          child: _toolPill(
-                            onTap: () => setState(() => _currentTool = 'color'), 
-                            icon: Icons.color_lens, 
-                            label: 'Color', 
-                            active: _currentTool == 'color'
-                          )
-                        ),
+                        SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'color'), icon: Icons.color_lens, label: 'Color', active: _currentTool == 'color')),
                         SizedBox(width: pillSpacing),
-                        SizedBox(
-                          width: pillWidth, 
-                          child: _toolPill(
-                            onTap: () => setState(() => _currentTool = 'eraser'), 
-                            icon: Icons.cleaning_services_outlined, 
-                            label: 'Eraser', 
-                            active: _currentTool == 'eraser'
-                          )
-                        ),
+                        SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'eraser'), icon: Icons.cleaning_services_outlined, label: 'Eraser', active: _currentTool == 'eraser')),
                         SizedBox(width: pillSpacing),
                         SizedBox(
                           width: pillWidth,
@@ -900,19 +901,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                   width: effectiveWidth,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)], 
-                      begin: Alignment.topLeft, 
-                      end: Alignment.bottomRight
-                    ),
+                    gradient: const LinearGradient(colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                     borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x11000000), 
-                        blurRadius: 10, 
-                        offset: Offset(0, 6)
-                      )
-                    ],
+                    boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
                   ),
                   child: SizedBox(
                     width: double.infinity,
@@ -932,20 +923,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                             duration: const Duration(milliseconds: 160),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              boxShadow: isSelected 
-                                ? [const BoxShadow(
-                                    color: Color(0x33000000), 
-                                    blurRadius: 8, 
-                                    offset: Offset(0, 4)
-                                  )] 
-                                : [const BoxShadow(
-                                    color: Color(0x11000000), 
-                                    blurRadius: 4
-                                  )],
-                              border: Border.all(
-                                color: isSelected ? Colors.deepPurple : Colors.grey.shade200, 
-                                width: isSelected ? 3.0 : 1.0
-                              ),
+                              boxShadow: isSelected
+                                  ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))]
+                                  : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
+                              border: Border.all(color: isSelected ? Colors.deepPurple : Colors.grey.shade200, width: isSelected ? 3.0 : 1.0),
                             ),
                             child: ClipOval(child: Container(color: c)),
                           ),

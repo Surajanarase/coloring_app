@@ -472,6 +472,27 @@ class DbService {
     return results;
   }
 
+    /// Return all path rows for the given image and current user.
+  /// Used by the UI to determine which path IDs were inserted (i.e. passed area filtering).
+  Future<List<Map<String, dynamic>>> getPathsForImage(String imageId) async {
+    if (_currentUsername == null) {
+      debugPrint('[DB] ERROR: No current user for getPathsForImage');
+      return [];
+    }
+
+    final database = await db;
+    final rows = await database.query(
+      'paths',
+      columns: ['id', 'image_id', 'area', 'is_colored', 'color'],
+      where: 'image_id = ? AND username = ?',
+      whereArgs: [imageId, _currentUsername],
+    );
+
+    debugPrint('[DB] getPathsForImage($imageId) -> ${rows.length} rows');
+    return rows;
+  }
+
+
   Future<void> resetImageProgress(String imageId) async {
     if (_currentUsername == null) {
       debugPrint('[DB] ERROR: No current user for resetImageProgress');
