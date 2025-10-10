@@ -9,7 +9,7 @@ import '../services/db_service.dart';
 import '../services/svg_service.dart';
 import '../services/path_service.dart';
 import 'colouring_page.dart';
-import 'quiz_page.dart';  // ADD THIS IMPORT
+import 'quiz_page.dart';
 import '../auth/login_screen.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -206,7 +206,7 @@ class _DashboardPageState extends State<DashboardPage> {
       );
       // Reload after quiz
       await _loadRows();
-     _checkAndShowQuizIfAvailable();
+      _checkAndShowQuizIfAvailable();
     }
   }
 
@@ -769,7 +769,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         );
                         await _loadRows();
-                      _checkAndShowQuizIfAvailable();
+                        _checkAndShowQuizIfAvailable();
                       },
                       child: Container(
                         decoration: BoxDecoration(
@@ -823,6 +823,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Get username - truncate if too long
+    String displayUsername = widget.username;
+    if (displayUsername.length > 12) {
+      displayUsername = '${displayUsername.substring(0, 12)}...';
+    }
+
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -833,24 +839,42 @@ class _DashboardPageState extends State<DashboardPage> {
         title: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Username section - left aligned
               Expanded(
-                child: Text(
-                  'Hi, ${widget.username} 👋', 
-                  style: const TextStyle(
-                    fontSize: 22, 
-                    fontWeight: FontWeight.w700
-                  )
-                )
+                flex: 3,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Hi, $displayUsername 👋', 
+                    style: const TextStyle(
+                      fontSize: 18, 
+                      fontWeight: FontWeight.w700
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
               ),
-              Image.asset(
-                'assets/logo2.png', 
-                height: 140, 
-                width: 140, 
-                fit: BoxFit.contain
-              ),
+              
+              // Logo section - center aligned
               Expanded(
+                flex: 2,
+                child: Center(
+                  child: Image.asset(
+                    'assets/logo2.png', 
+                    height: 120, 
+                    width: 120, 
+                    fit: BoxFit.contain
+                  ),
+                ),
+              ),
+              
+              // Logout button - right aligned
+              Expanded(
+                flex: 3,
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: InkWell(
@@ -880,15 +904,15 @@ class _DashboardPageState extends State<DashboardPage> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
-                          Icon(Icons.logout, size: 18, color: Colors.white),
+                          Icon(Icons.logout, size: 17, color: Colors.white),
                           SizedBox(width: 6),
                           Text(
                             'Logout', 
                             style: TextStyle(
-                              fontSize: 16, 
+                              fontSize: 15, 
                               color: Colors.white, 
                               fontWeight: FontWeight.w600
-                            )
+                            ),
                           ),
                         ],
                       ),
