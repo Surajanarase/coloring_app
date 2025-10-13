@@ -1,9 +1,8 @@
-**rheumatic heart disease (RHD) in children**.
+**Rheumatic heart disease (RHD) in children**.
 
----
 # What it is (definition)
 
-Rheumatic heart disease is permanent damage to the heart valves that follows **acute rheumatic fever (ARF)** — an autoimmune reaction that can occur after infection with *Group A Streptococcus* (strep throat or skin infections). It most often affects children and adolescents in low- and middle-income settings. ([World Health Organization][1])
+Rheumatic heart disease is permanent damage to the heart valves that follows **acute rheumatic fever (ARF)** — an autoimmune reaction that can occur after infection with *Group A Streptococcus* (strep throat or skin infections). It most often affects children and adolescents in low- and middle-income settings. (World Health Organization)
 
 # Cause & basic mechanism
 
@@ -39,7 +38,7 @@ Rheumatic heart disease is permanent damage to the heart valves that follows **a
 
 * Varies by severity and access to care: many children recover from a single mild ARF episode, but **recurrent ARF** leads to progressive valve scarring and increased risk of heart failure, arrhythmia, need for surgery, and premature death. Effective secondary prophylaxis dramatically reduces progression. ([NCBI][2])
 
----
+
 
 
 

@@ -127,12 +127,16 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     final wasAvailable = _quizAvailable;
-    _quizAvailable = displayPercent >= _quizUnlockThreshold;
+    final isNowAvailable = displayPercent >= _quizUnlockThreshold;
+    
+    setState(() {
+      _quizAvailable = isNowAvailable;
+    });
 
     debugPrint('[Dashboard] Quiz available: $_quizAvailable (last image: $displayPercent%)');
 
     // Show quiz dialog if available and wasn't available before (newly unlocked)
-    if (_quizAvailable && !wasAvailable && mounted) {
+    if (isNowAvailable && !wasAvailable && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showQuizUnlockedDialog();
       });
@@ -146,13 +150,15 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: const [
             Icon(Icons.emoji_events, color: Colors.amber, size: 32),
             SizedBox(width: 12),
-            Expanded(
+            Flexible(
               child: Text(
                 'Quiz Unlocked! 🎉',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
               ),
             ),
           ],
@@ -206,7 +212,6 @@ class _DashboardPageState extends State<DashboardPage> {
       );
       // Reload after quiz
       await _loadRows();
-      _checkAndShowQuizIfAvailable();
     }
   }
 
@@ -214,25 +219,25 @@ class _DashboardPageState extends State<DashboardPage> {
     if (_rows.isEmpty) return 'Start your coloring journey! 🎨';
     
     if (_quizAvailable) {
-      return '🎉 Amazing! Quiz unlocked! Tap the button below to test your knowledge!';
+      return 'Amazing! Quiz unlocked! Tap the button below to test your knowledge!';
     }
     
     if (_overall == 0) {
-      return '🎨 Welcome! Start coloring the first page to begin your learning adventure!';
+      return 'Welcome! Start coloring the first page to begin your learning adventure!';
     } else if (_overall < 20) {
-      return '🌟 Great start! Keep coloring to learn more about keeping your heart healthy!';
+      return 'Great start! Keep coloring to learn more about keeping your heart healthy!';
     } else if (_overall < 40) {
-      return '👏 You\'re doing wonderful! Continue coloring to unlock new pages!';
+      return 'You\'re doing wonderful! Continue coloring to unlock new pages!';
     } else if (_overall < 60) {
-      return '💪 Fantastic progress! You\'re learning so much about heart health!';
+      return 'Fantastic progress! You\'re learning so much about heart health!';
     } else if (_overall < 80) {
-      return '🎯 Almost there! Keep going to unlock the quiz and test your knowledge!';
+      return 'Almost there! Keep going to unlock the quiz and test your knowledge!';
     } else if (_overall < 95) {
-      return '⭐ Excellent work! Just a little more to complete all pages!';
+      return 'Excellent work! Just a little more to complete all pages!';
     } else if (_overall < 100) {
-      return '🏆 So close to 100%! Finish strong!';
+      return 'So close to 100%! Finish strong!';
     } else {
-      return '🎊 Perfect! You completed everything! You\'re a heart health champion!';
+      return 'Perfect! You completed everything! You\'re a heart health champion!';
     }
   }
 
@@ -433,7 +438,7 @@ class _DashboardPageState extends State<DashboardPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rheumatic Disease Information'),
+        title: const Text('Rheumatic Heart Disease Information'),
         content: SingleChildScrollView(
           child: Text(content.isNotEmpty ? content : 'Information not available')
         ),
@@ -681,6 +686,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
@@ -707,6 +714,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         fontWeight: FontWeight.w700,
                         height: 1.3,
                       ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ],
@@ -834,7 +842,7 @@ class _DashboardPageState extends State<DashboardPage> {
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        toolbarHeight: 80,
+        toolbarHeight: 90,
         titleSpacing: 0,
         title: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -842,79 +850,81 @@ class _DashboardPageState extends State<DashboardPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Username section - left aligned
+              // Logo and Username section - left aligned
               Expanded(
-                flex: 3,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Hi, $displayUsername 👋', 
-                    style: const TextStyle(
-                      fontSize: 18, 
-                      fontWeight: FontWeight.w700
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/logo2.png', 
+                      height: 70, 
+                      width: 70, 
+                      fit: BoxFit.contain
                     ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
+                    //const SizedBox(height: -3),
+                    Text(
+                      'Hi, $displayUsername 👋', 
+                      style: const TextStyle(
+                        fontSize: 15, 
+                        fontWeight: FontWeight.w700,
+                        
+                      ),
+                     overflow: TextOverflow.visible,
+                     softWrap: false,
+
+                    ),
+                  ],
                 ),
               ),
               
-              // Logo section - center aligned
+              // Logout button - right aligned (slightly shifted up for alignment)
               Expanded(
                 flex: 2,
-                child: Center(
-                  child: Image.asset(
-                    'assets/logo2.png', 
-                    height: 120, 
-                    width: 120, 
-                    fit: BoxFit.contain
-                  ),
-                ),
-              ),
-              
-              // Logout button - right aligned
-              Expanded(
-                flex: 3,
                 child: Align(
                   alignment: Alignment.centerRight,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(25),
-                    onTap: () {
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        (route) => false,
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14, 
-                        vertical: 8
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF6B6B), 
-                        borderRadius: BorderRadius.circular(25), 
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x22000000), 
-                            blurRadius: 6, 
-                            offset: Offset(0, 3)
-                          )
-                        ]
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(Icons.logout, size: 17, color: Colors.white),
-                          SizedBox(width: 6),
-                          Text(
-                            'Logout', 
-                            style: TextStyle(
-                              fontSize: 15, 
-                              color: Colors.white, 
-                              fontWeight: FontWeight.w600
+                  child: Transform.translate(
+                    offset: const Offset(0, -10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(25),
+                      onTap: () {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          (route) => false,
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14, 
+                          vertical: 8
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF6B6B), 
+                          borderRadius: BorderRadius.circular(25), 
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x22000000), 
+                              blurRadius: 6, 
+                              offset: Offset(0, 3)
+                            )
+                          ]
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.logout, size: 17, color: Colors.white),
+                            SizedBox(width: 6),
+                            Text(
+                              'Logout', 
+                              style: TextStyle(
+                                fontSize: 15, 
+                                color: Colors.white, 
+                                fontWeight: FontWeight.w600
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

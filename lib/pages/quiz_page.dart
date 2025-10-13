@@ -73,7 +73,7 @@ class _QuizPageState extends State<QuizPage> {
         "10 days as directed",
         "Until you feel better"
       ],
-      correctAnswer: 2,
+      correctAnswer: 3,
       explanation: "You must take the medicine exactly as directed for the full 10 days, even if you start feeling better.",
     ),
     QuizQuestion(
@@ -448,60 +448,61 @@ class _QuizPageState extends State<QuizPage> {
                         ),
                       ),
                     ],
+                    
+                    // Add spacing at bottom for button
+                    const SizedBox(height: 80),
                   ],
                 ),
               ),
             ),
 
-            // Action Buttons
-            Container(
+            // Action Buttons - Removed white box background
+            Padding(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.shade300,
-                    blurRadius: 8,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
               child: _showResult
-                  ? ElevatedButton(
-                      onPressed: _nextQuestion,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  ? SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _nextQuestion,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
                         ),
-                      ),
-                      child: Text(
-                        _currentQuestionIndex < _questions.length - 1
-                            ? 'Next Question'
-                            : 'See Results',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                        child: Text(
+                          _currentQuestionIndex < _questions.length - 1
+                              ? 'Next Question'
+                              : 'See Results',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     )
-                  : ElevatedButton(
-                      onPressed: _submitAnswer,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  : SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _submitAnswer,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
                         ),
-                      ),
-                      child: const Text(
-                        'Submit Answer',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                        child: const Text(
+                          'Submit Answer',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),

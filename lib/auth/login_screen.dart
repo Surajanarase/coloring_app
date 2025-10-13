@@ -29,9 +29,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _obscure = true;
 
-  // gender state
-  String _gender = 'Other';
-  final List<String> _genderOptions = ['Male', 'Female', 'Other'];
+  // gender state - FIXED: Made nullable
+  String? _gender;
+  final List<String> _genderOptions = ['Male', 'Female'];
 
   @override
   void dispose() {
@@ -256,9 +256,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
                             ),
                             const SizedBox(height: 12),
-                            // Gender dropdown (use initialValue to avoid deprecated `value`)
+                            // Gender dropdown - FIXED
                             DropdownButtonFormField<String>(
-                              initialValue: _gender,
                               decoration: InputDecoration(
                                 labelText: 'Gender',
                                 filled: true,
@@ -266,11 +265,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                 prefixIcon: const Icon(Icons.transgender),
                               ),
+                              hint: const Text('Select Gender'),
                               items: _genderOptions
                                   .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                                   .toList(),
                               onChanged: (v) {
                                 if (v != null) setState(() => _gender = v);
+                              },
+                              validator: (v) {
+                                if (v == null) return 'Please select gender';
+                                return null;
                               },
                             ),
                             const SizedBox(height: 12),
