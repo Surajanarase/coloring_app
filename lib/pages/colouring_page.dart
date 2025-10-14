@@ -41,6 +41,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   final Map<String, String> _originalFills = {};
 
   final TransformationController _transformationController = TransformationController();
+    // keep current viewer size to compute clamping bounds
+  Size _viewerSize = Size.zero;
+
   bool _isZoomed = false;
   AnimationController? _animController;
 
@@ -67,11 +70,65 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     _load();
   }
 
-  void _onTransformChanged() {
+    void _onTransformChanged() {
     final scale = _transformationController.value.getMaxScaleOnAxis();
     final zoomed = scale > 1.01;
     if (zoomed != _isZoomed) setState(() => _isZoomed = zoomed);
+
+    // When zoomed (or after panning) keep the translation clamped so the image
+    // cannot be moved outside the viewer box. This preserves your existing
+    // zoom detection logic while enforcing the panning bounds (old-file behavior).
+    _clampTransform();
   }
+    void _clampTransform() {
+    // if viewer size is unknown, nothing to do yet
+    if (_viewerSize == Size.zero) return;
+
+    final matrix = Matrix4.copy(_transformationController.value);
+    final scale = matrix.getMaxScaleOnAxis();
+
+    // translation components
+    final tx = matrix.storage[12];
+    final ty = matrix.storage[13];
+
+    // scaled content size (we assume the SVG/content is sized to fill the viewer)
+    final contentW = _viewerSize.width * scale;
+    final contentH = _viewerSize.height * scale;
+
+    double minTx, maxTx, minTy, maxTy;
+
+    // horizontal bounds
+    if (contentW > _viewerSize.width) {
+      final diffX = (contentW - _viewerSize.width) / 2.0;
+      minTx = -diffX;
+      maxTx = diffX;
+    } else {
+      // content smaller or equal: center and disallow panning horizontally
+      minTx = maxTx = 0.0;
+    }
+
+    // vertical bounds
+    if (contentH > _viewerSize.height) {
+      final diffY = (contentH - _viewerSize.height) / 2.0;
+      minTy = -diffY;
+      maxTy = diffY;
+    } else {
+      // content smaller or equal: center and disallow panning vertically
+      minTy = maxTy = 0.0;
+    }
+
+    // clamp translations
+    final clampedTx = tx.clamp(minTx, maxTx);
+    final clampedTy = ty.clamp(minTy, maxTy);
+
+    // only set controller if there is a difference to avoid noisy updates
+    if (clampedTx != tx || clampedTy != ty) {
+      matrix.setTranslationRaw(clampedTx, clampedTy, 0.0);
+      _transformationController.value = matrix;
+    }
+  }
+
+
 
   @override
   void dispose() {
@@ -166,8 +223,14 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     _buildPathsAndHitTest();
 
     debugPrint('[Load] ============ LOAD COMPLETE ============');
+    
+
 
     if (!mounted) return;
+
+     // ensure transform is clamped to initial viewer bounds (keeps image fitted)
+    _clampTransform();
+
     setState(() => _loading = false);
   }
 
@@ -722,11 +785,16 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
           builder: (context, constraints) {
             final screenWidth = constraints.maxWidth;
             final screenHeight = constraints.maxHeight;
+            
+
             final horizontalPadding = screenWidth * 0.03;
             final availableWidth = screenWidth - (2 * horizontalPadding);
             
             final viewerWidth = math.min(availableWidth, screenWidth * 0.95);
             final viewerHeight = math.min(screenHeight * 0.55, viewerWidth * 1.4);
+             // keep current viewer size for clamping logic (no setState — value-only)
+            _viewerSize = Size(viewerWidth, viewerHeight);
+
             
             return NotificationListener<ScrollNotification>(
               onNotification: (notification) {
@@ -838,8 +906,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTapUp: (details) {
-                                      // Only process taps when not zoomed and not in scale gesture
-                                      if (_isZoomed || _isScaleGesture) return;
+                                      // Only block taps during active scale gesture (two fingers), not when zoomed
+                                      if (_isScaleGesture) return;
                                       
                                       final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
                                       if (box == null) return;
@@ -1064,5 +1132,4 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         ),
       ),
     );
-  }
-}
+  }}
