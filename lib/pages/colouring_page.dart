@@ -37,9 +37,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   Color? _selectedColor;
   String _currentTool = 'color';
 
-  static const double _viewerWidth = 360;
-  static const double _viewerHeight = 520;
-
   final GlobalKey _containerKey = GlobalKey();
   final Map<String, String> _originalFills = {};
 
@@ -53,13 +50,14 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   static const double _minVisibleProgress = 5.0;
   static const double _eps = 0.01;
 
+  // For smooth zoom gesture handling
+  final ScrollController _scrollController = ScrollController();
+  //bool _isInteracting = false;
+
   @override
   void initState() {
     super.initState();
-
-    // ensure DB operations are attributed to the correct user
     _db.setCurrentUser(widget.username);
-
     _svgService = SvgService(assetPath: widget.assetPath);
     _transformationController.addListener(_onTransformChanged);
     _load();
@@ -76,13 +74,13 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     _transformationController.removeListener(_onTransformChanged);
     _animController?.dispose();
     _transformationController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     debugPrint('[Load] ============ STARTING LOAD FOR ${widget.assetPath} ============');
 
-    // Step 1: Load pristine SVG
     await _svgService.load();
     _originalSvgString = _svgService.getSvgString();
 
@@ -92,11 +90,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       return;
     }
 
-    // Step 2: Capture ORIGINAL fills from pristine SVG (before any modifications)
     _captureOriginalFills();
     debugPrint('[Load] Captured ${_originalFills.length} original fills');
 
-    // Step 3: Build paths and calculate areas
     final tmp = PathService();
     tmp.buildPathsFromDoc(_svgService.doc!);
 
@@ -111,11 +107,10 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       }
     }
 
-    // Filter out insignificant paths (< 0.1% of average area)
     final allAreas = pathAreas.values.where((a) => a > 0).toList();
     if (allAreas.isNotEmpty) {
       final avgArea = allAreas.fold<double>(0.0, (a, b) => a + b) / allAreas.length;
-      final minSignificantArea = avgArea * 0.001; // 0.1% of average
+      final minSignificantArea = avgArea * 0.001;
       
       final filteredAreas = <String, double>{};
       int filteredCount = 0;
@@ -139,7 +134,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     debugPrint('[Load] Total paths: ${pathAreas.length}, Total area: $totalArea');
 
-    // Step 4: Upsert to database
     await _db.upsertImage(
       imageId,
       widget.title ?? imageId.split('/').last,
@@ -148,7 +142,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     );
     await _db.insertPathsForImage(imageId, pathAreas);
 
-    // Step 5: Restore colored paths from database
     final coloredRows = await _db.getColoredPathsForImage(imageId);
     debugPrint('[Load] Found ${coloredRows.length} colored paths in database');
 
@@ -166,7 +159,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
     debugPrint('[Load] Successfully restored $restoredCount/${coloredRows.length} paths');
 
-    // Step 6: Build paths and hit test from modified SVG
     _buildPathsAndHitTest();
 
     debugPrint('[Load] ============ LOAD COMPLETE ============');
@@ -195,7 +187,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   }
 
   void _buildPathsAndHitTest() {
-    // use the proper service instance names
     _pathService.buildPathsFromDoc(_svgService.doc!);
     _hitTestService = HitTestService(
       paths: _pathService.paths,
@@ -221,7 +212,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     return 'none';
   }
 
-  /// Walk up parents to find computed fill (handles fills on `<g>` parents).
   String _getComputedFillForElement(XmlElement elem) {
     XmlElement? cur = elem;
     while (cur != null) {
@@ -295,7 +285,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     try {
       return _colorService.colorToHex(c);
     } catch (_) {
-      // fallback using recommended Color getters
       final int r = (c.r * 255.0).round() & 0xff;
       final int g = (c.g * 255.0).round() & 0xff;
       final int b = (c.b * 255.0).round() & 0xff;
@@ -338,11 +327,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     final imageId = widget.assetPath;
 
     try {
-      // Reset database first
       await _db.resetImageProgress(imageId);
       debugPrint('[Clear] Database reset complete');
 
-      // Reload pristine SVG
       if (_originalSvgString != null) {
         _svgService.setSvgString(_originalSvgString!);
       } else {
@@ -350,10 +337,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         _originalSvgString = _svgService.getSvgString();
       }
 
-      // Rebuild paths
       _buildPathsAndHitTest();
-
-      // Re-capture original fills
       _captureOriginalFills();
 
       debugPrint('[Clear] ✓ Canvas cleared, ${_originalFills.length} paths reset');
@@ -411,10 +395,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   Future<void> _saveProgress() async {
     debugPrint('[Save] ============ STARTING SAVE FOR ${widget.assetPath} ============');
 
-    // Sync database with current SVG state
     await _syncDbWithCurrentSvgState();
 
-    // Calculate display percentage
     final imageId = widget.assetPath;
     final coloredAreaQuery = await _db.getDashboardRows();
     final row = coloredAreaQuery.firstWhere((r) => r['id'] == imageId, orElse: () => {});
@@ -462,7 +444,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     int coloredCount = 0;
     int skippedCount = 0;
 
-    // Get valid path IDs from database (these are the ones that passed area filter)
     final imageId = widget.assetPath;
     final allPathRows = await _db.getPathsForImage(imageId);
     final validPathIds = allPathRows.map((r) => r['id'] as String).toSet();
@@ -480,17 +461,14 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         continue;
       }
 
-      // Skip paths that were filtered out due to small area
       if (!validPathIds.contains(id)) {
         skippedCount++;
         continue;
       }
 
-      // Use computed fill (walks up parents) for more accurate detection
       final currentFillRaw = _getComputedFillForElement(elem);
       final originalFill = _originalFills[id] ?? 'none';
 
-      // Determine via helper (this normalizes internally)
       final bool isColored = _isPathColored(currentFillRaw, originalFill);
 
       if (isColored) {
@@ -498,9 +476,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         await _db.markPathColored(id, toStore, imageId: imageId);
         coloredCount++;
       } else {
-        // CRITICAL FIX: Do NOT automatically mark as uncolored during sync
-        // Only explicit eraser actions should uncolor paths
-        // This prevents accidental DB wipes when DOM color detection is imperfect
         skippedCount++;
       }
     }
@@ -508,15 +483,12 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     debugPrint('[Sync] ✓ Complete: $coloredCount colored, $skippedCount skipped (not auto-uncolored)');
   }
 
-  /// Convert common color notations to normalized lowercase hex "#rrggbb".
-  /// Returns null for 'none'/'transparent' or if cannot parse.
   String? _normalizeColor(String? raw) {
     if (raw == null) return null;
     final s = raw.toLowerCase().trim();
     if (s.isEmpty) return null;
     if (s == 'none' || s == 'transparent') return null;
 
-    // Handle rgb() notation
     final rgb = RegExp(r'rgb\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)').firstMatch(s);
     if (rgb != null) {
       final r = int.parse(rgb.group(1)!).clamp(0, 255);
@@ -525,7 +497,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
     }
 
-    // Handle rgba() notation (ignore alpha)
     final rgba = RegExp(r'rgba\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*[\d.]+\s*\)').firstMatch(s);
     if (rgba != null) {
       final r = int.parse(rgba.group(1)!).clamp(0, 255);
@@ -534,7 +505,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
     }
 
-    // Handle short hex notation (#abc)
     final hexShort = RegExp(r'^#([0-9a-f]{3})$').firstMatch(s);
     if (hexShort != null) {
       final h = hexShort.group(1)!;
@@ -544,11 +514,9 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       return '#$r$g$b';
     }
 
-    // Handle full hex notation (#aabbcc)
     final hexFull = RegExp(r'^#([0-9a-f]{6})$').firstMatch(s);
     if (hexFull != null) return '#${hexFull.group(1)!}';
 
-    // Handle common color names
     final colorNames = {
       'black': '#000000',
       'white': '#ffffff',
@@ -578,25 +546,19 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       return colorNames[s]!;
     }
 
-    // fallback: return the raw trimmed string for unrecognized formats
     return s;
   }
 
   bool _isPathColored(String currentFill, String originalFill) {
-    // Normalize both colors for comparison
     final nCurr = _normalizeColor(currentFill);
     final nOrig = _normalizeColor(originalFill);
 
-    // Not colored if normalized current is null (none/transparent/empty)
     if (nCurr == null || nCurr.isEmpty) return false;
 
-    // If both normalized and equal => not colored (same as original)
     if (nOrig != null && nCurr == nOrig) return false;
 
-    // Special case: if original was 'none' and current has a color, it's colored
     if (nOrig == null) return true;
 
-    // Otherwise, consider colored (current differs from original)
     return true;
   }
 
@@ -748,198 +710,279 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       return Scaffold(appBar: header, body: const Center(child: Text('Failed to load SVG')));
     }
 
-    const horizontalMargin = 12.0;
-    final screenW = MediaQuery.of(context).size.width;
-    final effectiveWidth = math.min(_viewerWidth, screenW - 2 * horizontalMargin);
-
     return Scaffold(
       appBar: header,
       backgroundColor: const Color(0xFFFFFBFE),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
-                child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                  GestureDetector(
-                    onTap: _undoOneStep,
-                    child: Container(
-                      width: 50,
-                      height: 50,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
-                      ),
-                      child: const Icon(Icons.undo, color: Colors.black87),
-                    ),
-                  ),
-                ]),
-              ),
-
-              const SizedBox(height: 8),
-
-              Center(
-                child: SizedBox(
-                  width: effectiveWidth,
-                  height: _viewerHeight + 32,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          key: _containerKey,
-                          width: effectiveWidth,
-                          height: _viewerHeight,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: Colors.grey.shade200, width: 1.4),
-                            boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
-                          ),
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTapUp: (details) {
-                              final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
-                              if (box == null) return;
-                              final local = _computeLocalOffset(box, details.globalPosition);
-                              final inv = Matrix4.copy(_transformationController.value)..invert();
-                              final scene = MatrixUtils.transformPoint(inv, local);
-                              _onTapAt(scene, box.size);
-                            },
-                            child: InteractiveViewer(
-                              transformationController: _transformationController,
-                              panEnabled: _isZoomed,
-                              scaleEnabled: true,
-                              minScale: 1.0,
-                              maxScale: 6.0,
-                              boundaryMargin: const EdgeInsets.all(80),
-                              child: SvgViewer(svgString: svgString, viewBox: _svgService.viewBox, showWidgetBorder: false),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      if (_isZoomed)
-                        Positioned(
-                          top: _viewerHeight - 20,
-                          left: (screenW - 40) / 2,
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: _animateResetZoom,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Calculate responsive dimensions
+            final screenWidth = constraints.maxWidth;
+            final screenHeight = constraints.maxHeight;
+            final horizontalPadding = screenWidth * 0.03; // 3% padding
+            final availableWidth = screenWidth - (2 * horizontalPadding);
+            
+            // Calculate viewer dimensions based on screen size
+            final viewerWidth = math.min(availableWidth, screenWidth * 0.95);
+            final viewerHeight = math.min(screenHeight * 0.55, viewerWidth * 1.4);
+            
+            return NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                // Prevent scroll when zoomed
+                if (_isZoomed) {
+                  return true;
+                }
+                return false;
+              },
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                physics: _isZoomed ? const NeverScrollableScrollPhysics() : const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  children: [
+                    SizedBox(height: screenHeight * 0.015),
+                    
+                    // Undo button
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          GestureDetector(
+                            onTap: _undoOneStep,
                             child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
+                              width: 50,
+                              height: 50,
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFFFFF59D), Color(0xFFFFCC80)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.grey.shade300),
-                                boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 2))],
+                                boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))],
                               ),
-                              child: const Icon(Icons.center_focus_strong, size: 18, color: Colors.black87),
+                              child: const Icon(Icons.undo, color: Colors.black87),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              Builder(builder: (context) {
-                final pillSpacing = 8.0;
-                final totalPadding = 2 * horizontalMargin + 16;
-                final availableWidth = effectiveWidth - totalPadding - (pillSpacing * 2);
-                final pillWidth = (availableWidth / 3).clamp(110.0, 220.0);
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
-                  child: Container(
-                    width: effectiveWidth,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+                        ],
+                      ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'color'), icon: Icons.color_lens, label: 'Color', active: _currentTool == 'color')),
-                        SizedBox(width: pillSpacing),
-                        SizedBox(width: pillWidth, child: _toolPill(onTap: () => setState(() => _currentTool = 'eraser'), icon: Icons.cleaning_services_outlined, label: 'Eraser', active: _currentTool == 'eraser')),
-                        SizedBox(width: pillSpacing),
-                        SizedBox(
-                          width: pillWidth,
-                          child: _toolPill(
-                            onTap: () {
-                              setState(() => _currentTool = 'clear');
-                              _clearCanvasAll();
-                            },
-                            icon: Icons.delete_outline,
-                            label: 'Clear',
-                            active: _currentTool == 'clear',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
 
-              const SizedBox(height: 16),
+                    SizedBox(height: screenHeight * 0.01),
 
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: horizontalMargin),
-                child: Container(
-                  width: effectiveWidth,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
-                  ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 44 * 2 + 12,
-                    child: GridView.count(
-                      crossAxisCount: 7,
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                      physics: const NeverScrollableScrollPhysics(),
-                      childAspectRatio: 1,
-                      padding: EdgeInsets.zero,
-                      children: _colorService.palette.map((c) {
-                        final isSelected = _selectedColor == c;
-                        return GestureDetector(
-                          onTap: () => _onSelectColor(c),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              boxShadow: isSelected
-                                  ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))]
-                                  : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
-                              border: Border.all(color: isSelected ? Colors.deepPurple : Colors.grey.shade200, width: isSelected ? 3.0 : 1.0),
+                    // SVG Viewer with smooth zoom
+                    Center(
+                      child: SizedBox(
+                        width: viewerWidth,
+                        height: viewerHeight + 32,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              child: Container(
+                                key: _containerKey,
+                                width: viewerWidth,
+                                height: viewerHeight,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: Colors.grey.shade200, width: 1.4),
+                                  boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
+                                ),
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTapUp: (details) {
+                                    final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
+                                    if (box == null) return;
+                                    final local = _computeLocalOffset(box, details.globalPosition);
+                                    final inv = Matrix4.copy(_transformationController.value)..invert();
+                                    final scene = MatrixUtils.transformPoint(inv, local);
+                                    _onTapAt(scene, box.size);
+                                  },
+                                  child: Listener(
+                                    onPointerDown: (event) {
+                                      //setState(() => _isInteracting = true);
+                                    },
+                                    onPointerUp: (event) {
+                                      //setState(() => _isInteracting = false);
+                                    },
+                                    child: InteractiveViewer(
+                                      transformationController: _transformationController,
+                                      panEnabled: _isZoomed,
+                                      scaleEnabled: true,
+                                      minScale: 1.0,
+                                      maxScale: 6.0,
+                                      boundaryMargin: const EdgeInsets.all(80),
+                                      panAxis: _isZoomed ? PanAxis.free : PanAxis.aligned,
+                                      onInteractionStart: (details) {
+                                        //setState(() => _isInteracting = true);
+                                      },
+                                      onInteractionEnd: (details) {
+                                        //setState(() => _isInteracting = false);
+                                      },
+                                      child: SvgViewer(
+                                        svgString: svgString,
+                                        viewBox: _svgService.viewBox,
+                                        showWidgetBorder: false,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                            child: ClipOval(child: Container(color: c)),
-                          ),
-                        );
-                      }).toList(),
+
+                            if (_isZoomed)
+                              Positioned(
+                                top: viewerHeight - 20,
+                                left: (viewerWidth - 40) / 2,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: _animateResetZoom,
+                                  child: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.grey.shade300),
+                                      boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 6, offset: Offset(0, 2))],
+                                    ),
+                                    child: const Icon(Icons.center_focus_strong, size: 18, color: Colors.black87),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+
+                    SizedBox(height: screenHeight * 0.02),
+
+                    // Tool Pills - Responsive
+                    Builder(builder: (context) {
+                      final pillSpacing = screenWidth * 0.02;
+                      final totalPadding = 2 * horizontalPadding + 16;
+                      final availableWidthForPills = viewerWidth - totalPadding - (pillSpacing * 2);
+                      final pillWidth = (availableWidthForPills / 3).clamp(100.0, 200.0);
+
+                      return Padding(
+                        padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                        child: Container(
+                          width: viewerWidth,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: pillWidth,
+                                child: _toolPill(
+                                  onTap: () => setState(() => _currentTool = 'color'),
+                                  icon: Icons.color_lens,
+                                  label: 'Color',
+                                  active: _currentTool == 'color',
+                                ),
+                              ),
+                              SizedBox(width: pillSpacing),
+                              SizedBox(
+                                width: pillWidth,
+                                child: _toolPill(
+                                  onTap: () => setState(() => _currentTool = 'eraser'),
+                                  icon: Icons.cleaning_services_outlined,
+                                  label: 'Eraser',
+                                  active: _currentTool == 'eraser',
+                                ),
+                              ),
+                              SizedBox(width: pillSpacing),
+                              SizedBox(
+                                width: pillWidth,
+                                child: _toolPill(
+                                  onTap: () {
+                                    setState(() => _currentTool = 'clear');
+                                    _clearCanvasAll();
+                                  },
+                                  icon: Icons.delete_outline,
+                                  label: 'Clear',
+                                  active: _currentTool == 'clear',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+
+                    SizedBox(height: screenHeight * 0.02),
+
+                    // Color Palette - Responsive
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                      child: Container(
+                        width: viewerWidth,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 6))],
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final availableWidth = constraints.maxWidth - 24;
+                            final colorSize = (availableWidth / 7 - 8).clamp(35.0, 50.0);
+                            
+                            return Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.center,
+                              children: _colorService.palette.map((c) {
+                                final isSelected = _selectedColor == c;
+                                return GestureDetector(
+                                  onTap: () => _onSelectColor(c),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 160),
+                                    width: colorSize,
+                                    height: colorSize,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      boxShadow: isSelected
+                                          ? [const BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 4))]
+                                          : [const BoxShadow(color: Color(0x11000000), blurRadius: 4)],
+                                      border: Border.all(
+                                        color: isSelected ? Colors.deepPurple : Colors.grey.shade200,
+                                        width: isSelected ? 3.0 : 1.0,
+                                      ),
+                                    ),
+                                    child: ClipOval(child: Container(color: c)),
+                                  ),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: screenHeight * 0.03),
+                  ],
                 ),
               ),
-
-              const SizedBox(height: 26),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

@@ -53,7 +53,6 @@ class _DashboardPageState extends State<DashboardPage> {
       debugPrint('[Dashboard] Debug dump failed: $e');
     }
     
-    // Check if quiz should be shown
     _checkAndShowQuizIfAvailable();
     
     debugPrint('[Dashboard] ============ INITIALIZATION COMPLETE ============');
@@ -84,7 +83,6 @@ class _DashboardPageState extends State<DashboardPage> {
       if (!mounted) return;
       setState(() => _rows = rows);
 
-      // Calculate overall progress
       final totalAreaSum = _rows.fold<double>(
         0.0, 
         (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0)
@@ -112,7 +110,6 @@ class _DashboardPageState extends State<DashboardPage> {
       return;
     }
 
-    // Get last image
     final lastImage = _rows.last;
     final totalArea = (lastImage['total_area'] as num?)?.toDouble() ?? 0.0;
     final coloredArea = (lastImage['colored_area'] as num?)?.toDouble() ?? 0.0;
@@ -135,7 +132,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
     debugPrint('[Dashboard] Quiz available: $_quizAvailable (last image: $displayPercent%)');
 
-    // Show quiz dialog if available and wasn't available before (newly unlocked)
     if (isNowAvailable && !wasAvailable && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showQuizUnlockedDialog();
@@ -210,7 +206,6 @@ class _DashboardPageState extends State<DashboardPage> {
           builder: (_) => QuizPage(username: widget.username),
         ),
       );
-      // Reload after quiz
       await _loadRows();
     }
   }
@@ -354,12 +349,10 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   int _boostProgressPercent(double rawPercent, double coloredAreaSum, double totalAreaSum) {
-    // Exact 100% when all area colored
     if (totalAreaSum > 0 && (coloredAreaSum + _eps >= totalAreaSum)) {
       return 100;
     }
     
-    // Show 100% when raw is 99% or above
     if (rawPercent >= 99.0) {
       return 100;
     }
@@ -369,19 +362,16 @@ class _DashboardPageState extends State<DashboardPage> {
     final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
     double boosted = math.pow(normalized, _progressGamma).toDouble() * 100.0;
 
-    // Ensure tiny progress is visible
     if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
       boosted = _minVisibleProgress;
     }
 
-    // Smooth mid-range (30-95%)
     if (rawPercent >= 30.0 && rawPercent < 95.0) {
       final midRangeBoost = math.pow(normalized, _progressGamma * 0.95).toDouble() * 100.0;
       final blendFactor = 0.15;
       boosted = boosted * (1 - blendFactor) + midRangeBoost * blendFactor;
     }
 
-    // Prevent premature 100%
     if (boosted >= 99.0 && rawPercent < 97.0) {
       boosted = 98.0;
     }
@@ -612,231 +602,241 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildProgressHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)], 
-            begin: Alignment.topLeft, 
-            end: Alignment.bottomRight
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x22000000),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            )
-          ],
-        ),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center, 
-              children: [
-                const Text(
-                  'Your colouring progress', 
-                  style: TextStyle(
-                    color: Color(0xFF2D7A72), 
-                    fontSize: 22, 
-                    fontWeight: FontWeight.w700
-                  )
-                ),
-                const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12, 
-                    vertical: 6
-                  ), 
-                  decoration: BoxDecoration(
-                    color: Colors.white24, 
-                    borderRadius: BorderRadius.circular(12)
-                  ), 
-                  child: Text(
-                    '$_overall%', 
-                    style: const TextStyle(
-                      fontSize: 24, 
-                      fontWeight: FontWeight.w700, 
-                      color: Color(0xFF2D7A72)
-                    )
-                  )
-                ),
-              ]
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = constraints.maxWidth;
+        final isSmallScreen = screenWidth < 600;
+        
+        return Padding(
+          padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.03),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              vertical: isSmallScreen ? 14 : 18,
+              horizontal: isSmallScreen ? 12 : 16,
             ),
-            const SizedBox(height: 12),
-            
-            // Motivational Message with gradient background
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF2D7A72).withValues(alpha: 0.15),
-                    const Color(0xFF4BB0D6).withValues(alpha: 0.15),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.4),
-                  width: 1.5,
-                ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        )
-                      ],
-                    ),
-                    child: const Icon(Icons.emoji_events, color: Color(0xFFFFB800), size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _getMotivationalMessage(),
-                      style: const TextStyle(
-                        color: Color(0xFF1A5F57), 
-                        fontSize: 14, 
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              children: [
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    Text(
+                      'Your colouring progress',
+                      style: TextStyle(
+                        color: const Color(0xFF2D7A72),
+                        fontSize: isSmallScreen ? 18 : 22,
                         fontWeight: FontWeight.w700,
-                        height: 1.3,
                       ),
-                      textAlign: TextAlign.center,
+                    ),
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 10 : 12,
+                        vertical: isSmallScreen ? 4 : 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '$_overall%',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 20 : 24,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF2D7A72),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Motivational Message
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 10 : 14,
+                    vertical: isSmallScreen ? 10 : 12,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF2D7A72).withValues(alpha: 0.15),
+                        const Color(0xFF4BB0D6).withValues(alpha: 0.15),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      width: 1.5,
                     ),
                   ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 14),
-            
-            // Buttons Row - Learn More + Quiz (if available)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Learn More Button
-                Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(28),
-                    onTap: _openRheumaticInfo,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)], 
-                          begin: Alignment.topLeft, 
-                          end: Alignment.bottomRight
-                        ),
-                        borderRadius: BorderRadius.circular(28),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.menu_book, color: Colors.white, size: 18),
-                          SizedBox(width: 8),
-                          Text(
-                            'Learn More', 
-                            style: TextStyle(
-                              color: Colors.white, 
-                              fontWeight: FontWeight.w700, 
-                              fontSize: 15
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(isSmallScreen ? 6 : 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
                             )
-                          ),
-                          SizedBox(width: 4),
-                          Icon(Icons.chevron_right, color: Colors.white, size: 18),
-                        ],
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.emoji_events,
+                          color: const Color(0xFFFFB800),
+                          size: isSmallScreen ? 18 : 20,
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _getMotivationalMessage(),
+                          style: TextStyle(
+                            color: const Color(0xFF1A5F57),
+                            fontSize: isSmallScreen ? 12 : 14,
+                            fontWeight: FontWeight.w700,
+                            height: 1.3,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                
-                // Quiz Button (if available)
-                if (_quizAvailable) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: InkWell(
+
+                const SizedBox(height: 14),
+
+                // Buttons Row
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    // Learn More Button
+                    InkWell(
                       borderRadius: BorderRadius.circular(28),
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => QuizPage(username: widget.username),
-                          ),
-                        );
-                        await _loadRows();
-                        _checkAndShowQuizIfAvailable();
-                      },
+                      onTap: _openRheumaticInfo,
                       child: Container(
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)], 
-                            begin: Alignment.topLeft, 
-                            end: Alignment.bottomRight
+                            colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(28),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x44FF6B6B),
-                              blurRadius: 8,
-                              offset: Offset(0, 3),
-                            )
-                          ],
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 14 : 16,
+                          vertical: 10,
+                        ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Icon(Icons.quiz, color: Colors.white, size: 18),
-                            SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                'Take Quiz', 
-                                style: TextStyle(
-                                  color: Colors.white, 
-                                  fontWeight: FontWeight.w700, 
-                                  fontSize: 15
-                                ),
-                                overflow: TextOverflow.ellipsis,
+                          children: [
+                            Icon(Icons.menu_book, color: Colors.white, size: isSmallScreen ? 16 : 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Learn More',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: isSmallScreen ? 13 : 15,
                               ),
                             ),
-                            SizedBox(width: 4),
-                            Icon(Icons.arrow_forward, color: Colors.white, size: 16),
+                            const SizedBox(width: 4),
+                            Icon(Icons.chevron_right, color: Colors.white, size: isSmallScreen ? 16 : 18),
                           ],
                         ),
                       ),
                     ),
-                  ),
-                ],
+
+                    // Quiz Button (if available)
+                    if (_quizAvailable)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(28),
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => QuizPage(username: widget.username),
+                            ),
+                          );
+                          await _loadRows();
+                          _checkAndShowQuizIfAvailable();
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(28),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x44FF6B6B),
+                                blurRadius: 8,
+                                offset: Offset(0, 3),
+                              )
+                            ],
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isSmallScreen ? 14 : 16,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.quiz, color: Colors.white, size: isSmallScreen ? 16 : 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Take Quiz',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isSmallScreen ? 13 : 15,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_forward, color: Colors.white, size: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Get username - truncate if too long
-    String displayUsername = widget.username;
-    if (displayUsername.length > 12) {
-      displayUsername = '${displayUsername.substring(0, 12)}...';
-    }
-
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -844,105 +844,117 @@ class _DashboardPageState extends State<DashboardPage> {
         elevation: 0,
         toolbarHeight: 90,
         titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Logo and Username section - left aligned
-              Expanded(
-                flex: 4,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset(
-                      'assets/logo2.png', 
-                      height: 70, 
-                      width: 70, 
-                      fit: BoxFit.contain
-                    ),
-                    //const SizedBox(height: -3),
-                    Text(
-                      'Hi, $displayUsername 👋', 
-                      style: const TextStyle(
-                        fontSize: 15, 
-                        fontWeight: FontWeight.w700,
-                        
-                      ),
-                     overflow: TextOverflow.visible,
-                     softWrap: false,
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            String displayUsername = widget.username;
+            final maxUsernameLength = constraints.maxWidth > 600 ? 15 : 10;
+            if (displayUsername.length > maxUsernameLength) {
+              displayUsername = '${displayUsername.substring(0, maxUsernameLength)}...';
+            }
 
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: constraints.maxWidth * 0.03),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    flex: 4,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/logo2.png',
+                          height: constraints.maxWidth > 600 ? 80 : 70,
+                          width: constraints.maxWidth > 600 ? 80 : 70,
+                          fit: BoxFit.contain,
+                        ),
+                        Text(
+                          'Hi, $displayUsername 👋',
+                          style: TextStyle(
+                            fontSize: constraints.maxWidth > 600 ? 18 : 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          overflow: TextOverflow.visible,
+                          softWrap: false,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              
-              // Logout button - right aligned (slightly shifted up for alignment)
-              Expanded(
-                flex: 2,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Transform.translate(
-                    offset: const Offset(0, -10),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(25),
-                      onTap: () {
-                        Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                          (route) => false,
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14, 
-                          vertical: 8
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF6B6B), 
-                          borderRadius: BorderRadius.circular(25), 
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x22000000), 
-                              blurRadius: 6, 
-                              offset: Offset(0, 3)
-                            )
-                          ]
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(Icons.logout, size: 17, color: Colors.white),
-                            SizedBox(width: 6),
-                            Text(
-                              'Logout', 
-                              style: TextStyle(
-                                fontSize: 15, 
-                                color: Colors.white, 
-                                fontWeight: FontWeight.w600
-                              ),
+                  ),
+
+                  Expanded(
+                    flex: 2,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Transform.translate(
+                        offset: const Offset(0, -10),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(25),
+                          onTap: () {
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(builder: (_) => const LoginScreen()),
+                              (route) => false,
+                            );
+                          },
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: constraints.maxWidth > 600 ? 16 : 14,
+                              vertical: 8,
                             ),
-                          ],
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF6B6B),
+                              borderRadius: BorderRadius.circular(25),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x22000000),
+                                  blurRadius: 6,
+                                  offset: Offset(0, 3),
+                                )
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.logout, size: constraints.maxWidth > 600 ? 18 : 17, color: Colors.white),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Logout',
+                                  style: TextStyle(
+                                    fontSize: constraints.maxWidth > 600 ? 16 : 15,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              children: [
-                _buildProgressHeader(),
-                const SizedBox(height: 8),
-                ..._rows.asMap().entries.map((e) => _buildRow(e.value, e.key)),
-              ],
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                return ListView(
+                  padding: EdgeInsets.symmetric(
+                    vertical: constraints.maxHeight * 0.02,
+                    horizontal: constraints.maxWidth * 0.01,
+                  ),
+                  children: [
+                    _buildProgressHeader(),
+                    const SizedBox(height: 8),
+                    ..._rows.asMap().entries.map((e) => _buildRow(e.value, e.key)),
+                  ],
+                );
+              },
             ),
     );
   }
