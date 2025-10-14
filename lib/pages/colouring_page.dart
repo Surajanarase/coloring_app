@@ -1005,7 +1005,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                       ),
                     ),
 
-                    SizedBox(height: screenHeight * 0.02),
+                    SizedBox(height: screenHeight * 0.00001),
 
                     // Tool Pills - Responsive
                     Builder(builder: (context) {
@@ -1018,7 +1018,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                         padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
                         child: Container(
                           width: viewerWidth,
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)],
