@@ -26,6 +26,7 @@ class SvgViewer extends StatelessWidget {
         : 1.0;
 
     // NOTE: removed internal GestureDetector so parent will control tap + coordinate transform.
+    // Use AspectRatio so the svg always respects its intrinsic aspect ratio.
     return Center(
       child: AspectRatio(
         aspectRatio: aspect,
@@ -42,7 +43,7 @@ class SvgViewer extends StatelessWidget {
             child: SvgPicture.string(
               svgString,
               fit: BoxFit.contain,        // show whole image, preserves aspect ratio
-              alignment: Alignment.topCenter, // pin image to top (reduces perceived top-gap)
+              alignment: Alignment.center, // center the artwork so pinch-zoom behaves predictably
             ),
           ),
         ),
