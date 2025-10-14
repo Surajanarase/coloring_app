@@ -81,52 +81,53 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     _clampTransform();
   }
     void _clampTransform() {
-    // if viewer size is unknown, nothing to do yet
-    if (_viewerSize == Size.zero) return;
+  // if viewer size is unknown, nothing to do yet
+  if (_viewerSize == Size.zero) return;
 
-    final matrix = Matrix4.copy(_transformationController.value);
-    final scale = matrix.getMaxScaleOnAxis();
+  final matrix = Matrix4.copy(_transformationController.value);
+  final scale = matrix.getMaxScaleOnAxis();
 
-    // translation components
-    final tx = matrix.storage[12];
-    final ty = matrix.storage[13];
+  // Only clamp when zoomed in
+  if (scale <= 1.01) return;
 
-    // scaled content size (we assume the SVG/content is sized to fill the viewer)
-    final contentW = _viewerSize.width * scale;
-    final contentH = _viewerSize.height * scale;
+  // translation components
+  final tx = matrix.storage[12];
+  final ty = matrix.storage[13];
 
-    double minTx, maxTx, minTy, maxTy;
+  // scaled content size
+  final contentW = _viewerSize.width * scale;
+  final contentH = _viewerSize.height * scale;
 
-    // horizontal bounds
-    if (contentW > _viewerSize.width) {
-      final diffX = (contentW - _viewerSize.width) / 2.0;
-      minTx = -diffX;
-      maxTx = diffX;
-    } else {
-      // content smaller or equal: center and disallow panning horizontally
-      minTx = maxTx = 0.0;
-    }
+  double minTx, maxTx, minTy, maxTy;
 
-    // vertical bounds
-    if (contentH > _viewerSize.height) {
-      final diffY = (contentH - _viewerSize.height) / 2.0;
-      minTy = -diffY;
-      maxTy = diffY;
-    } else {
-      // content smaller or equal: center and disallow panning vertically
-      minTy = maxTy = 0.0;
-    }
-
-    // clamp translations
-    final clampedTx = tx.clamp(minTx, maxTx);
-    final clampedTy = ty.clamp(minTy, maxTy);
-
-    // only set controller if there is a difference to avoid noisy updates
-    if (clampedTx != tx || clampedTy != ty) {
-      matrix.setTranslationRaw(clampedTx, clampedTy, 0.0);
-      _transformationController.value = matrix;
-    }
+  // horizontal bounds - CORRECTED LOGIC
+  if (contentW > _viewerSize.width) {
+    final diffX = (contentW - _viewerSize.width);
+    maxTx = 0.0;  // Right edge at container edge
+    minTx = -diffX;  // Left edge limit
+  } else {
+    minTx = maxTx = 0.0;
   }
+
+  // vertical bounds - CORRECTED LOGIC
+  if (contentH > _viewerSize.height) {
+    final diffY = (contentH - _viewerSize.height);
+    maxTy = 0.0;  // Top edge at container edge
+    minTy = -diffY;  // Bottom edge limit
+  } else {
+    minTy = maxTy = 0.0;
+  }
+
+  // clamp translations
+  final clampedTx = tx.clamp(minTx, maxTx);
+  final clampedTy = ty.clamp(minTy, maxTy);
+
+  // only set controller if there is a difference to avoid noisy updates
+  if (clampedTx != tx || clampedTy != ty) {
+    matrix.setTranslationRaw(clampedTx, clampedTy, 0.0);
+    _transformationController.value = matrix;
+  }
+}
 
 
 
@@ -916,16 +917,15 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                       final scene = MatrixUtils.transformPoint(inv, local);
                                       _onTapAt(scene, box.size);
                                     },
-                                    child: InteractiveViewer(
+                                   child: InteractiveViewer(
                                       transformationController: _transformationController,
-                                      panEnabled: _isZoomed, // Only pan when zoomed
+                                      panEnabled:_isZoomed, // Always allow panning
                                       scaleEnabled: true, // Always allow scale
                                       minScale: 1.0,
                                       maxScale: 6.0,
-                                      boundaryMargin: const EdgeInsets.all(80),
-                                      panAxis: _isZoomed ? PanAxis.free : PanAxis.aligned,
-                                      constrained: true,
-                                       
+                                      boundaryMargin: EdgeInsets.zero, // No extra boundary
+                                       panAxis: PanAxis.free, // Free panning in all directions
+                                       constrained: true, // Allow panning within bounds
                                       // CRITICAL: These callbacks handle smooth zoom
                                       onInteractionStart: (details) {
                                         debugPrint('[InteractiveViewer] Interaction started');
