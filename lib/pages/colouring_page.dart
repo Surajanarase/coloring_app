@@ -50,9 +50,13 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   static const double _minVisibleProgress = 5.0;
   static const double _eps = 0.01;
 
-  // For smooth zoom gesture handling
+  // Enhanced gesture handling
   final ScrollController _scrollController = ScrollController();
-  //bool _isInteracting = false;
+  bool _isScaleGesture = false;
+  int _pointerCount = 0;
+  // ignore: unused_field
+  Offset? _lastFocalPoint;
+  double _lastScale = 1.0;
 
   @override
   void initState() {
@@ -716,27 +720,27 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Calculate responsive dimensions
             final screenWidth = constraints.maxWidth;
             final screenHeight = constraints.maxHeight;
-            final horizontalPadding = screenWidth * 0.03; // 3% padding
+            final horizontalPadding = screenWidth * 0.03;
             final availableWidth = screenWidth - (2 * horizontalPadding);
             
-            // Calculate viewer dimensions based on screen size
             final viewerWidth = math.min(availableWidth, screenWidth * 0.95);
             final viewerHeight = math.min(screenHeight * 0.55, viewerWidth * 1.4);
             
             return NotificationListener<ScrollNotification>(
               onNotification: (notification) {
-                // Prevent scroll when zoomed
-                if (_isZoomed) {
+                // Only block scroll when actively zoomed or during scale gesture
+                if (_isZoomed || _isScaleGesture) {
                   return true;
                 }
                 return false;
               },
               child: SingleChildScrollView(
                 controller: _scrollController,
-                physics: _isZoomed ? const NeverScrollableScrollPhysics() : const AlwaysScrollableScrollPhysics(),
+                physics: (_isZoomed || _isScaleGesture) 
+                    ? const NeverScrollableScrollPhysics() 
+                    : const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   children: [
                     SizedBox(height: screenHeight * 0.015),
@@ -770,7 +774,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 
                     SizedBox(height: screenHeight * 0.01),
 
-                    // SVG Viewer with smooth zoom
+                    // SVG Viewer with ENHANCED smooth zoom
                     Center(
                       child: SizedBox(
                         width: viewerWidth,
@@ -792,37 +796,110 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                   border: Border.all(color: Colors.grey.shade200, width: 1.4),
                                   boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 6))],
                                 ),
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTapUp: (details) {
-                                    final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
-                                    if (box == null) return;
-                                    final local = _computeLocalOffset(box, details.globalPosition);
-                                    final inv = Matrix4.copy(_transformationController.value)..invert();
-                                    final scene = MatrixUtils.transformPoint(inv, local);
-                                    _onTapAt(scene, box.size);
+                                child: Listener(
+                                  onPointerDown: (event) {
+                                    _pointerCount++;
+                                    debugPrint('[Gesture] Pointer down: $_pointerCount pointers');
+                                    
+                                    // Two or more fingers = scale gesture
+                                    if (_pointerCount >= 2) {
+                                      setState(() {
+                                        _isScaleGesture = true;
+                                      });
+                                      debugPrint('[Gesture] Scale gesture started');
+                                    }
                                   },
-                                  child: Listener(
-                                    onPointerDown: (event) {
-                                      //setState(() => _isInteracting = true);
-                                    },
-                                    onPointerUp: (event) {
-                                      //setState(() => _isInteracting = false);
+                                  onPointerUp: (event) {
+                                    _pointerCount--;
+                                    debugPrint('[Gesture] Pointer up: $_pointerCount pointers remaining');
+                                    
+                                    // Reset when all fingers lifted
+                                    if (_pointerCount <= 0) {
+                                      _pointerCount = 0;
+                                      setState(() {
+                                        _isScaleGesture = false;
+                                      });
+                                      _lastFocalPoint = null;
+                                      _lastScale = 1.0;
+                                      debugPrint('[Gesture] All fingers lifted, scale gesture ended');
+                                    }
+                                  },
+                                  onPointerCancel: (event) {
+                                    _pointerCount = math.max(0, _pointerCount - 1);
+                                    if (_pointerCount <= 0) {
+                                      _pointerCount = 0;
+                                      setState(() {
+                                        _isScaleGesture = false;
+                                      });
+                                      _lastFocalPoint = null;
+                                      _lastScale = 1.0;
+                                    }
+                                  },
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTapUp: (details) {
+                                      // Only process taps when not zoomed and not in scale gesture
+                                      if (_isZoomed || _isScaleGesture) return;
+                                      
+                                      final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
+                                      if (box == null) return;
+                                      final local = _computeLocalOffset(box, details.globalPosition);
+                                      final inv = Matrix4.copy(_transformationController.value)..invert();
+                                      final scene = MatrixUtils.transformPoint(inv, local);
+                                      _onTapAt(scene, box.size);
                                     },
                                     child: InteractiveViewer(
                                       transformationController: _transformationController,
-                                      panEnabled: _isZoomed,
-                                      scaleEnabled: true,
+                                      panEnabled: _isZoomed, // Only pan when zoomed
+                                      scaleEnabled: true, // Always allow scale
                                       minScale: 1.0,
                                       maxScale: 6.0,
                                       boundaryMargin: const EdgeInsets.all(80),
                                       panAxis: _isZoomed ? PanAxis.free : PanAxis.aligned,
+                                      constrained: true,
+                                       
+                                      // CRITICAL: These callbacks handle smooth zoom
                                       onInteractionStart: (details) {
-                                        //setState(() => _isInteracting = true);
+                                        debugPrint('[InteractiveViewer] Interaction started');
+                                        if (details.pointerCount >= 2) {
+                                          setState(() {
+                                            _isScaleGesture = true;
+                                          });
+                                          _lastFocalPoint = details.focalPoint;
+                                          _lastScale = _transformationController.value.getMaxScaleOnAxis();
+                                        }
                                       },
+                                       
+                                      onInteractionUpdate: (details) {
+                                        // Track scale changes for smooth zoom
+                                        if (details.pointerCount >= 2) {
+                                          final currentScale = _transformationController.value.getMaxScaleOnAxis();
+                                          
+                                          // Log scale changes for debugging
+                                          if ((currentScale - _lastScale).abs() > 0.01) {
+                                            debugPrint('[InteractiveViewer] Scale: ${currentScale.toStringAsFixed(2)}');
+                                            _lastScale = currentScale;
+                                          }
+                                          
+                                          _lastFocalPoint = details.focalPoint;
+                                        }
+                                      },
+                                       
                                       onInteractionEnd: (details) {
-                                        //setState(() => _isInteracting = false);
+                                        debugPrint('[InteractiveViewer] Interaction ended');
+                                        
+                                        // Small delay to ensure gesture completes smoothly
+                                        Future.delayed(const Duration(milliseconds: 100), () {
+                                          if (mounted) {
+                                            setState(() {
+                                              _isScaleGesture = false;
+                                            });
+                                            _lastFocalPoint = null;
+                                            _lastScale = 1.0;
+                                          }
+                                        });
                                       },
+                                       
                                       child: SvgViewer(
                                         svgString: svgString,
                                         viewBox: _svgService.viewBox,
@@ -834,6 +911,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                               ),
                             ),
 
+                            // Reset zoom button when zoomed
                             if (_isZoomed)
                               Positioned(
                                 top: viewerHeight - 20,
