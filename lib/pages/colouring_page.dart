@@ -308,40 +308,44 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
   Offset _computeLocalOffset(RenderBox box, Offset globalPos) => box.globalToLocal(globalPos);
 
   Future<void> _onTapAt(Offset localPos, Size widgetSize) async {
-    if (_hitTestService == null) return;
+  if (_hitTestService == null) return;
 
-    final hitId = _hitTestService!.hitTest(localPos, widgetSize);
-    if (hitId == null) {
-      debugPrint('[Tap] No path hit');
-      return;
-    }
-
-    debugPrint('[Tap] Hit path: $hitId, Tool: $_currentTool');
-
-    if (_currentTool == 'color' && _selectedColor == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a color first!')));
-      return;
-    }
-
-    _tryPushSnapshot(_svgService.getSvgString());
-
-    if (_currentTool == 'color') {
-      final colorHex = _colorToHex(_selectedColor!);
-      _svgService.applyFillToElementById(hitId, colorHex);
-      await _db.markPathColored(hitId, colorHex, imageId: widget.assetPath);
-      debugPrint('[Tap] ✓ Colored path $hitId with $colorHex');
-    } else if (_currentTool == 'eraser') {
-      final orig = _originalFills[hitId] ?? 'none';
-      _svgService.applyFillToElementById(hitId, orig);
-      await _db.markPathUncolored(hitId, imageId: widget.assetPath);
-      debugPrint('[Tap] ✓ Erased path $hitId back to: $orig');
-    }
-
-    _buildPathsAndHitTest();
-    if (!mounted) return;
-    setState(() {});
+  // CRITICAL FIX: Transform tap position through inverse matrix when zoomed
+  final hitId = _hitTestService!.hitTest(localPos, widgetSize);
+  
+  if (hitId == null) {
+    debugPrint('[Tap] No path hit');
+    return;
   }
+
+  debugPrint('[Tap] Hit path: $hitId, Tool: $_currentTool');
+
+  if (_currentTool == 'color' && _selectedColor == null) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Pick a color first!'))
+    );
+    return;
+  }
+
+  _tryPushSnapshot(_svgService.getSvgString());
+
+  if (_currentTool == 'color') {
+    final colorHex = _colorToHex(_selectedColor!);
+    _svgService.applyFillToElementById(hitId, colorHex);
+    await _db.markPathColored(hitId, colorHex, imageId: widget.assetPath);
+    debugPrint('[Tap] ✓ Colored path $hitId with $colorHex');
+  } else if (_currentTool == 'eraser') {
+    final orig = _originalFills[hitId] ?? 'none';
+    _svgService.applyFillToElementById(hitId, orig);
+    await _db.markPathUncolored(hitId, imageId: widget.assetPath);
+    debugPrint('[Tap] ✓ Erased path $hitId back to: $orig');
+  }
+
+  _buildPathsAndHitTest();
+  if (!mounted) return;
+  setState(() {});
+}
 
   void _tryPushSnapshot(String? xml) {
     try {
@@ -907,16 +911,27 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTapUp: (details) {
-                                      // Only block taps during active scale gesture (two fingers), not when zoomed
-                                      if (_isScaleGesture) return;
-                                      
-                                      final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
-                                      if (box == null) return;
-                                      final local = _computeLocalOffset(box, details.globalPosition);
-                                      final inv = Matrix4.copy(_transformationController.value)..invert();
-                                      final scene = MatrixUtils.transformPoint(inv, local);
-                                      _onTapAt(scene, box.size);
-                                    },
+  // Only block taps during active scale gesture (two fingers)
+  if (_isScaleGesture) return;
+  
+  final box = _containerKey.currentContext?.findRenderObject() as RenderBox?;
+  if (box == null) return;
+  
+  // Get local position
+  final local = _computeLocalOffset(box, details.globalPosition);
+  
+  // Transform through inverse matrix to get SVG coordinates
+  final inv = Matrix4.copy(_transformationController.value);
+  try {
+    inv.invert();
+    final scene = MatrixUtils.transformPoint(inv, local);
+    debugPrint('[Tap] Local: $local → Scene: $scene (scale: ${_transformationController.value.getMaxScaleOnAxis().toStringAsFixed(2)})');
+    _onTapAt(scene, box.size);
+  } catch (e) {
+    debugPrint('[Tap] Matrix invert failed: $e');
+    _onTapAt(local, box.size);
+  }
+},
                                    child: InteractiveViewer(
                                       transformationController: _transformationController,
                                       panEnabled:_isZoomed, // Always allow panning
