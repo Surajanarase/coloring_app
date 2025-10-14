@@ -791,7 +791,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
             final availableWidth = screenWidth - (2 * horizontalPadding);
             
             final viewerWidth = math.min(availableWidth, screenWidth * 0.95);
-            final viewerHeight = math.min(screenHeight * 0.55, viewerWidth * 1.4);
+            final viewerHeight = math.min(screenHeight * 0.80, viewerWidth * 1.6);
              // keep current viewer size for clamping logic (no setState — value-only)
             _viewerSize = Size(viewerWidth, viewerHeight);
 
@@ -799,14 +799,14 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
             return NotificationListener<ScrollNotification>(
               onNotification: (notification) {
                 // Only block scroll when actively zoomed or during scale gesture
-                if (_isZoomed || _isScaleGesture) {
+                if (_isScaleGesture) {
                   return true;
                 }
                 return false;
               },
               child: SingleChildScrollView(
                 controller: _scrollController,
-                physics: (_isZoomed || _isScaleGesture) 
+                physics: _isScaleGesture 
                     ? const NeverScrollableScrollPhysics() 
                     : const AlwaysScrollableScrollPhysics(),
                 child: Column(
@@ -840,7 +840,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                       ),
                     ),
 
-                    SizedBox(height: screenHeight * 0.01),
+                    SizedBox(height: screenHeight * 0.005),
 
                     // SVG Viewer with ENHANCED smooth zoom
                     Center(
