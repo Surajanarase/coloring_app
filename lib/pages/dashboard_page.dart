@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/db_service.dart';
 import '../services/svg_service.dart';
@@ -421,23 +423,184 @@ class _DashboardPageState extends State<DashboardPage> {
       if (md.isNotEmpty) content = md;
     } catch (e) {
       debugPrint('[Dashboard] Failed to load rheumatic info: $e');
+      content = '# Information Not Available\n\nSorry, we could not load the information at this time. Please try again later.';
     }
     
     if (!mounted) return;
     
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rheumatic Heart Disease Information'),
-        content: SingleChildScrollView(
-          child: Text(content.isNotEmpty ? content : 'Information not available')
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+            maxWidth: MediaQuery.of(ctx).size.width * 0.95,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with gradient
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF84FAB0), Color(0xFF8FD3F4)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.favorite, 
+                        color: Color(0xFF2D7A72), 
+                        size: 28
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Rheumatic Heart Disease',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D7A72),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Color(0xFF2D7A72)),
+                      onPressed: () => Navigator.pop(ctx),
+                      tooltip: 'Close',
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Markdown Content
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  child: Markdown(
+                    data: content,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet(
+                      h1: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D7A72),
+                        height: 1.4,
+                      ),
+                      h1Padding: const EdgeInsets.only(top: 16, bottom: 8),
+                      h2: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D7A72),
+                        height: 1.4,
+                      ),
+                      h2Padding: const EdgeInsets.only(top: 14, bottom: 6),
+                      h3: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4BB0D6),
+                        height: 1.3,
+                      ),
+                      h3Padding: const EdgeInsets.only(top: 12, bottom: 4),
+                      h4: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF4BB0D6),
+                      ),
+                      p: const TextStyle(
+                        fontSize: 15,
+                        height: 1.6,
+                        color: Colors.black87,
+                      ),
+                      pPadding: const EdgeInsets.only(bottom: 12),
+                      listBullet: const TextStyle(
+                        fontSize: 15,
+                        color: Color(0xFF2D7A72),
+                        fontWeight: FontWeight.bold,
+                      ),
+                      listBulletPadding: const EdgeInsets.only(right: 8),
+                      listIndent: 24.0,
+                      blockSpacing: 12.0,
+                      strong: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D7A72),
+                      ),
+                      em: const TextStyle(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.black87,
+                      ),
+                      blockquote: const TextStyle(
+                        fontSize: 15,
+                        color: Colors.black54,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      blockquoteDecoration: BoxDecoration(
+                        color: const Color(0xFFF0F9F8),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border(
+                          left: BorderSide(
+                            color: const Color(0xFF4BB0D6),
+                            width: 4,
+                          ),
+                        ),
+                      ),
+                      blockquotePadding: const EdgeInsets.all(12),
+                      code: const TextStyle(
+                        fontSize: 14,
+                        backgroundColor: Color(0xFFF5F5F5),
+                        fontFamily: 'monospace',
+                      ),
+                      a: const TextStyle(
+                        color: Color(0xFF4BB0D6),
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                    onTapLink: (text, url, title) async {
+                      if (url != null && url.isNotEmpty) {
+                        try {
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(
+                              uri, 
+                              mode: LaunchMode.externalApplication
+                            );
+                          } else {
+                            debugPrint('[Dashboard] Cannot launch URL: $url');
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(
+                                  content: Text('Could not open link: $url'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          debugPrint('[Dashboard] Error launching URL: $e');
+                        }
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx), 
-            child: const Text('Close')
-          )
-        ],
       ),
     );
   }
