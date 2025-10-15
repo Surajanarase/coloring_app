@@ -1,5 +1,3 @@
-# Rheumatic Heart Disease
-
 ## What is Rheumatic Heart Disease?
 
 Rheumatic Heart Disease (RHD) is a serious condition that damages the heart valves. It happens when a simple sore throat infection is not treated properly with medicine.

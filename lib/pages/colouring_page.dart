@@ -130,7 +130,6 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
 }
 
 
-
   @override
   void dispose() {
     _transformationController.removeListener(_onTransformChanged);
@@ -226,6 +225,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
     debugPrint('[Load] ============ LOAD COMPLETE ============');
     
 
+    
 
     if (!mounted) return;
 
@@ -796,6 +796,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
             final availableWidth = screenWidth - (2 * horizontalPadding);
             
             final viewerWidth = math.min(availableWidth, screenWidth * 0.95);
+            // NOTE: removed the extra fixed +32 padding on viewer height to avoid overflow on small screens
             final viewerHeight = math.min(screenHeight * 0.80, viewerWidth * 1.6);
              // keep current viewer size for clamping logic (no setState — value-only)
             _viewerSize = Size(viewerWidth, viewerHeight);
@@ -851,7 +852,8 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                     Center(
                       child: SizedBox(
                         width: viewerWidth,
-                        height: viewerHeight + 32,
+                        // use viewerHeight exactly to avoid unexpected overflow on small devices
+                        height: viewerHeight,
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
@@ -952,7 +954,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                           _lastScale = _transformationController.value.getMaxScaleOnAxis();
                                         }
                                       },
-                                       
+                                        
                                       onInteractionUpdate: (details) {
                                         // Track scale changes for smooth zoom
                                         if (details.pointerCount >= 2) {
@@ -967,7 +969,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                           _lastFocalPoint = details.focalPoint;
                                         }
                                       },
-                                       
+                                        
                                       onInteractionEnd: (details) {
                                         debugPrint('[InteractiveViewer] Interaction ended');
                                         
@@ -982,7 +984,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                                           }
                                         });
                                       },
-                                       
+                                        
                                       child: SvgViewer(
                                         svgString: svgString,
                                         viewBox: _svgService.viewBox,
@@ -997,7 +999,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                             // Reset zoom button when zoomed
                             if (_isZoomed)
                               Positioned(
-                                top: viewerHeight - 20,
+                                top: viewerHeight - 47,
                                 left: (viewerWidth - 40) / 2,
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,

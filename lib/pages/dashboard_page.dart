@@ -469,16 +469,23 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Rheumatic Heart Disease',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2D7A72),
-                        ),
-                      ),
-                    ),
+                 Flexible(
+  child: FittedBox(
+    fit: BoxFit.scaleDown,
+    alignment: Alignment.centerLeft,
+    child: const Text(
+      'Rheumatic Heart Disease',
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.bold,
+        color: Color(0xFF2D7A72),
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+  ),
+),
+
                     IconButton(
                       icon: const Icon(Icons.close, color: Color(0xFF2D7A72)),
                       onPressed: () => Navigator.pop(ctx),
@@ -666,98 +673,105 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300),
+            child: LayoutBuilder(builder: (context, constraints) {
+              // compute thumbnail size responsive to available width
+              final thumbSize = (constraints.maxWidth * 0.18).clamp(56.0, 96.0);
+
+              return Row(
+                children: [
+                  Container(
+                    width: thumbSize,
+                    height: thumbSize,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Builder(builder: (ctx) {
+                        try {
+                          return SvgPicture.asset(
+                            id,
+                            fit: BoxFit.cover,
+                            placeholderBuilder: (_) => const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2)
+                            ),
+                          );
+                        } catch (e) {
+                          debugPrint('[Dashboard] Failed to load thumbnail for $id: $e');
+                          return const Center(
+                            child: Text('🎨', style: TextStyle(fontSize: 32))
+                          );
+                        }
+                      }),
+                    ),
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Builder(builder: (ctx) {
-                      try {
-                        return SvgPicture.asset(
-                          id,
-                          fit: BoxFit.cover,
-                          placeholderBuilder: (_) => const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2)
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title, 
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700, 
+                            fontSize: 15
                           ),
-                        );
-                      } catch (e) {
-                        debugPrint('[Dashboard] Failed to load thumbnail for $id: $e');
-                        return const Center(
-                          child: Text('🎨', style: TextStyle(fontSize: 32))
-                        );
-                      }
-                    }),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title, 
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700, 
-                          fontSize: 15
-                        )
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: LinearProgressIndicator(
-                              value: displayPercent / 100.0,
-                              minHeight: 8,
-                              backgroundColor: Colors.grey.shade200,
-                              color: Colors.teal,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10, 
-                              vertical: 4
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: pillColor,
-                            ),
-                            child: Text(
-                              '$displayPercent%',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: LinearProgressIndicator(
+                                value: displayPercent / 100.0,
+                                minHeight: 8,
+                                backgroundColor: Colors.grey.shade200,
+                                color: Colors.teal,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        displayPercent == 0 
-                            ? (unlocked ? 'Not started • Tap to open' : 'Locked • Complete previous image')
-                            : (displayPercent < 100 
-                                ? 'In progress ($displayPercent%) • Tap to continue' 
-                                : 'Completed • Tap to view'),
-                        style: TextStyle(
-                          color: Colors.grey.shade700, 
-                          fontSize: 12
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10, 
+                                vertical: 4
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: pillColor,
+                              ),
+                              child: Text(
+                                '$displayPercent%',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      )
-                    ],
+                        const SizedBox(height: 8),
+                        Text(
+                          displayPercent == 0 
+                              ? (unlocked ? 'Not started • Tap to open' : 'Locked • Complete previous image')
+                              : (displayPercent < 100 
+                                  ? 'In progress ($displayPercent%) • Tap to continue' 
+                                  : 'Completed • Tap to view'),
+                          style: TextStyle(
+                            color: Colors.grey.shade700, 
+                            fontSize: 12
+                          ),
+                        )
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                ],
+              );
+            }),
           ),
         ),
       ),
@@ -1027,19 +1041,23 @@ class _DashboardPageState extends State<DashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Image.asset(
-                          'assets/logo2.png',
-                          height: constraints.maxWidth > 600 ? 80 : 70,
-                          width: constraints.maxWidth > 600 ? 80 : 70,
-                          fit: BoxFit.contain,
+                        SizedBox(
+                          height: constraints.maxWidth > 600 ? 80 : 64,
+                          width: constraints.maxWidth > 600 ? 80 : 64,
+                          child: Image.asset(
+                            'assets/logo2.png',
+                            fit: BoxFit.contain,
+                          ),
                         ),
+                        const SizedBox(height: 4),
                         Text(
                           'Hi, $displayUsername 👋',
                           style: TextStyle(
                             fontSize: constraints.maxWidth > 600 ? 18 : 15,
                             fontWeight: FontWeight.w700,
                           ),
-                          overflow: TextOverflow.visible,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                           softWrap: false,
                         ),
                       ],
@@ -1109,12 +1127,13 @@ class _DashboardPageState extends State<DashboardPage> {
                 return ListView(
                   padding: EdgeInsets.symmetric(
                     vertical: constraints.maxHeight * 0.02,
-                    horizontal: constraints.maxWidth * 0.01,
+                    horizontal: constraints.maxWidth * 0.02,
                   ),
                   children: [
                     _buildProgressHeader(),
                     const SizedBox(height: 8),
                     ..._rows.asMap().entries.map((e) => _buildRow(e.value, e.key)),
+                    SizedBox(height: constraints.maxHeight * 0.08),
                   ],
                 );
               },

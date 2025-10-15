@@ -182,7 +182,11 @@ class _QuizPageState extends State<QuizPage> {
 
   void _showFinalResults() {
     final percentage = (_score / _questions.length * 100).round();
-    
+
+    // compute dialog icon size here (correct scope) so it's not undefined or unused
+    final screenW = MediaQuery.of(context).size.width;
+    final dialogIconSize = screenW < 420 ? 28.0 : 32.0;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -192,7 +196,7 @@ class _QuizPageState extends State<QuizPage> {
             Icon(
               percentage >= 70 ? Icons.emoji_events : Icons.info_outline,
               color: percentage >= 70 ? Colors.amber : Colors.blue,
-              size: 32,
+              size: dialogIconSize,
             ),
             const SizedBox(width: 12),
             const Expanded(child: Text('Quiz Complete!')),
@@ -244,6 +248,15 @@ class _QuizPageState extends State<QuizPage> {
     final question = _questions[_currentQuestionIndex];
     final progress = (_currentQuestionIndex + 1) / _questions.length;
 
+    // responsive sizing derived from screen width (keeps all names/logic unchanged)
+    final screenW = MediaQuery.of(context).size.width;
+    final isSmall = screenW < 420;
+    final headlineSize = isSmall ? 18.0 : 20.0;
+    final optionFont = isSmall ? 14.0 : 16.0;
+    final optionIconBase = isSmall ? 32.0 : 36.0;
+    final resultIconSize = isSmall ? 24.0 : 28.0;
+    final buttonFont = isSmall ? 16.0 : 18.0;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -257,9 +270,9 @@ class _QuizPageState extends State<QuizPage> {
             ),
           ),
         ),
-        title: const Text(
+        title: Text(
           'Heart Health Quiz',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.black87),
+          style: TextStyle(fontSize: headlineSize, fontWeight: FontWeight.w800, color: Colors.black87),
         ),
         centerTitle: true,
       ),
@@ -268,7 +281,7 @@ class _QuizPageState extends State<QuizPage> {
           children: [
             // Progress Bar
             Container(
-              margin: const EdgeInsets.all(16),
+              margin: EdgeInsets.all(screenW * 0.04),
               child: Column(
                 children: [
                   Row(
@@ -276,24 +289,24 @@ class _QuizPageState extends State<QuizPage> {
                     children: [
                       Text(
                         'Question ${_currentQuestionIndex + 1}/${_questions.length}',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(fontSize: isSmall ? 14 : 16, fontWeight: FontWeight.w600),
                       ),
                       Text(
                         'Score: $_score',
-                        style: const TextStyle(
-                          fontSize: 16,
+                        style: TextStyle(
+                          fontSize: isSmall ? 14 : 16,
                           fontWeight: FontWeight.w700,
                           color: Colors.green,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: screenW * 0.02),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: LinearProgressIndicator(
                       value: progress,
-                      minHeight: 10,
+                      minHeight: isSmall ? 8 : 10,
                       backgroundColor: Colors.grey.shade200,
                       color: Colors.teal,
                     ),
@@ -305,12 +318,12 @@ class _QuizPageState extends State<QuizPage> {
             // Question Card
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.symmetric(horizontal: screenW * 0.04, vertical: screenW * 0.03),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: EdgeInsets.all(isSmall ? 16 : 20),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)],
@@ -328,8 +341,8 @@ class _QuizPageState extends State<QuizPage> {
                       ),
                       child: Text(
                         question.question,
-                        style: const TextStyle(
-                          fontSize: 20,
+                        style: TextStyle(
+                          fontSize: headlineSize,
                           fontWeight: FontWeight.w700,
                           color: Colors.black87,
                         ),
@@ -337,13 +350,13 @@ class _QuizPageState extends State<QuizPage> {
                       ),
                     ),
 
-                    const SizedBox(height: 24),
+                    SizedBox(height: screenW * 0.06),
 
                     // Options
                     ...List.generate(question.options.length, (index) {
                       final isSelected = _selectedAnswer == index;
                       final isCorrect = index == question.correctAnswer;
-                      
+
                       Color cardColor = Colors.white;
                       Color borderColor = Colors.grey.shade300;
                       IconData? icon;
@@ -369,8 +382,8 @@ class _QuizPageState extends State<QuizPage> {
                       return GestureDetector(
                         onTap: () => _selectAnswer(index),
                         child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(16),
+                          margin: EdgeInsets.only(bottom: screenW * 0.03),
+                          padding: EdgeInsets.all(isSmall ? 12 : 16),
                           decoration: BoxDecoration(
                             color: cardColor,
                             borderRadius: BorderRadius.circular(12),
@@ -386,8 +399,8 @@ class _QuizPageState extends State<QuizPage> {
                           child: Row(
                             children: [
                               Container(
-                                width: 32,
-                                height: 32,
+                                width: optionIconBase,
+                                height: optionIconBase,
                                 decoration: BoxDecoration(
                                   color: isSelected ? Colors.deepPurple : Colors.grey.shade200,
                                   shape: BoxShape.circle,
@@ -402,18 +415,21 @@ class _QuizPageState extends State<QuizPage> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              SizedBox(width: screenW * 0.03),
                               Expanded(
                                 child: Text(
                                   question.options[index],
-                                  style: const TextStyle(
-                                    fontSize: 16,
+                                  style: TextStyle(
+                                    fontSize: optionFont,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
                               if (icon != null)
-                                Icon(icon, color: iconColor, size: 28),
+                                Padding(
+                                  padding: EdgeInsets.only(left: screenW * 0.03),
+                                  child: Icon(icon, color: iconColor, size: resultIconSize),
+                                ),
                             ],
                           ),
                         ),
@@ -422,9 +438,9 @@ class _QuizPageState extends State<QuizPage> {
 
                     // Explanation (shown after answer)
                     if (_showResult) ...[
-                      const SizedBox(height: 16),
+                      SizedBox(height: screenW * 0.04),
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: EdgeInsets.all(isSmall ? 12 : 16),
                         decoration: BoxDecoration(
                           color: const Color(0xFFE3F2FD),
                           borderRadius: BorderRadius.circular(12),
@@ -433,13 +449,13 @@ class _QuizPageState extends State<QuizPage> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.lightbulb, color: Colors.orange, size: 24),
-                            const SizedBox(width: 12),
+                            Icon(Icons.lightbulb, color: Colors.orange, size: resultIconSize),
+                            SizedBox(width: screenW * 0.03),
                             Expanded(
                               child: Text(
                                 question.explanation,
-                                style: const TextStyle(
-                                  fontSize: 15,
+                                style: TextStyle(
+                                  fontSize: optionFont,
                                   color: Colors.black87,
                                 ),
                               ),
@@ -448,9 +464,9 @@ class _QuizPageState extends State<QuizPage> {
                         ),
                       ),
                     ],
-                    
+
                     // Add spacing at bottom for button
-                    const SizedBox(height: 80),
+                    SizedBox(height: screenW * 0.08),
                   ],
                 ),
               ),
@@ -458,7 +474,7 @@ class _QuizPageState extends State<QuizPage> {
 
             // Action Buttons - Removed white box background
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(screenW * 0.04),
               child: _showResult
                   ? SizedBox(
                       width: double.infinity,
@@ -466,7 +482,7 @@ class _QuizPageState extends State<QuizPage> {
                         onPressed: _nextQuestion,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.teal,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          padding: EdgeInsets.symmetric(vertical: isSmall ? 14 : 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -476,8 +492,8 @@ class _QuizPageState extends State<QuizPage> {
                           _currentQuestionIndex < _questions.length - 1
                               ? 'Next Question'
                               : 'See Results',
-                          style: const TextStyle(
-                            fontSize: 18,
+                          style: TextStyle(
+                            fontSize: buttonFont,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
@@ -490,16 +506,16 @@ class _QuizPageState extends State<QuizPage> {
                         onPressed: _submitAnswer,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.deepPurple,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          padding: EdgeInsets.symmetric(vertical: isSmall ? 14 : 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                           elevation: 4,
                         ),
-                        child: const Text(
+                        child: Text(
                           'Submit Answer',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: buttonFont,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
