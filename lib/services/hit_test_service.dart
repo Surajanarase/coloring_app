@@ -16,7 +16,14 @@ class HitTestService {
 
     final sx = widgetSize.width / viewBox.width;
     final sy = widgetSize.height / viewBox.height;
-    final scale = math.min(sx, sy);
+
+    // IMPORTANT:
+    // SvgViewer uses BoxFit.cover (fills the widget, may crop),
+    // while previous code used min(sx, sy) (contain). To match rendering we
+    // must use cover behavior here (math.max). This aligns hit-testing
+    // transform with what is actually drawn.
+    final scale = math.max(sx, sy);
+
     final drawnW = viewBox.width * scale;
     final drawnH = viewBox.height * scale;
     final offsetX = (widgetSize.width - drawnW) / 2.0;
@@ -38,7 +45,7 @@ class HitTestService {
       // transform path into widget space
       final transformed = entry.value.transform(matrix);
 
-      // contains expects an ui.Offset — localPos is ui.Offset
+      // contains expects an ui.Offset — localPos is ui.Offset (widget coords)
       if (transformed.contains(localPos)) {
         final b = transformed.getBounds();
         final area = b.width * b.height;
