@@ -1,4 +1,4 @@
-// COMPLETE READY-TO-USE login_screen.dart
+// FINAL PRODUCTION-READY login_screen.dart
 // Replace your entire lib/auth/login_screen.dart file with this code
 
 import 'package:flutter/material.dart';
@@ -125,7 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _deleteAccount() async {
     if (!mounted) return;
 
-    // Show dialog to re-enter credentials
     final credentials = await showDialog<Map<String, String>>(
       context: context,
       barrierDismissible: false,
@@ -219,8 +218,8 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildLogo() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final logoSize = MediaQuery.of(context).size.width * 0.4;
-        final clampedLogoSize = logoSize.clamp(120.0, 180.0);
+        final logoSize = MediaQuery.of(context).size.width * 0.35;
+        final clampedLogoSize = logoSize.clamp(100.0, 160.0);
         
         return Column(
           children: [
@@ -247,7 +246,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               ),
             ),
-            SizedBox(height: MediaQuery.of(context).size.height * 0.02),
+            SizedBox(height: MediaQuery.of(context).size.height * 0.015),
           ],
         );
       },
@@ -261,8 +260,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final screenWidth = mediaQuery.size.width;
     final safePadding = mediaQuery.padding;
     
-    final horizontalPadding = screenWidth * 0.05;
-    final verticalPadding = screenHeight * 0.02;
+    final horizontalPadding = screenWidth * 0.06;
+    final verticalPadding = screenHeight * 0.015;
     
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
@@ -285,30 +284,33 @@ class _LoginScreenState extends State<LoginScreen> {
               child: SingleChildScrollView(
                 padding: EdgeInsets.symmetric(
                   horizontal: horizontalPadding.clamp(16.0, 40.0),
-                  vertical: verticalPadding.clamp(10.0, 20.0),
+                  vertical: verticalPadding.clamp(12.0, 24.0),
                 ),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: 600,
-                    minHeight: screenHeight - safePadding.top - safePadding.bottom,
+                    maxWidth: 500,
+                    minHeight: screenHeight - safePadding.top - safePadding.bottom - (verticalPadding * 2),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _buildLogo(),
                       Container(
-                        padding: EdgeInsets.all(screenWidth * 0.05),
-                        margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.02),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: screenWidth * 0.045,
+                          vertical: screenHeight * 0.022,
+                        ),
+                        margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.015),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [
-                              Color.fromRGBO(255, 255, 255, 0.95),
-                              Color.fromRGBO(255, 255, 255, 0.85),
+                              Color.fromRGBO(255, 255, 255, 0.96),
+                              Color.fromRGBO(255, 255, 255, 0.88),
                             ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(16),
                           boxShadow: const [
                             BoxShadow(
                               color: Color(0x33000000),
@@ -325,91 +327,72 @@ class _LoginScreenState extends State<LoginScreen> {
                               Text(
                                 _isRegisterMode ? 'Create account' : 'Welcome back',
                                 style: TextStyle(
-                                  fontSize: (screenWidth * 0.05).clamp(18.0, 24.0),
+                                  fontSize: (screenWidth * 0.052).clamp(19.0, 25.0),
                                   fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.3,
                                 ),
                               ),
-                              SizedBox(height: screenHeight * 0.01),
+                              SizedBox(height: screenHeight * 0.008),
                               Text(
                                 _isRegisterMode
                                     ? 'Fill in your details to create account'
                                     : 'Use username and password to sign in',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: (screenWidth * 0.035).clamp(12.0, 16.0),
+                                  fontSize: (screenWidth * 0.034).clamp(12.0, 15.0),
+                                  color: Colors.black87,
                                 ),
                               ),
-                              SizedBox(height: screenHeight * 0.02),
+                              SizedBox(height: screenHeight * 0.018),
 
                               if (_isRegisterMode) ...[
-                                TextFormField(
+                                _buildTextField(
                                   controller: _fullnameCtrl,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: InputDecoration(
-                                    labelText: 'Full name',
-                                    filled: true,
-                                    fillColor: const Color.fromRGBO(255, 255, 255, 0.9),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    prefixIcon: const Icon(Icons.person),
-                                    contentPadding: EdgeInsets.symmetric(
-                                      vertical: screenHeight * 0.02,
-                                      horizontal: screenWidth * 0.04,
-                                    ),
-                                  ),
+                                  label: 'Full name',
+                                  icon: Icons.person,
                                   validator: (v) {
-                                    if (v == null || v.trim().isEmpty) {
-                                      return 'Enter full name';
-                                    }
-                                    if (v.trim().length < 3) {
-                                      return 'At least 3 characters';
-                                    }
+                                    if (v == null || v.trim().isEmpty) return 'Enter full name';
+                                    if (v.trim().length < 3) return 'At least 3 characters';
                                     return null;
                                   },
                                   onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
                                 ),
-                                SizedBox(height: screenHeight * 0.015),
-                                TextFormField(
+                                SizedBox(height: screenHeight * 0.012),
+                                _buildTextField(
                                   controller: _ageCtrl,
+                                  label: 'Age',
+                                  icon: Icons.cake,
                                   keyboardType: TextInputType.number,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: InputDecoration(
-                                    labelText: 'Age',
-                                    filled: true,
-                                    fillColor: const Color.fromRGBO(255, 255, 255, 0.9),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    prefixIcon: const Icon(Icons.cake),
-                                    contentPadding: EdgeInsets.symmetric(
-                                      vertical: screenHeight * 0.02,
-                                      horizontal: screenWidth * 0.04,
-                                    ),
-                                  ),
                                   validator: (v) {
-                                    if (v == null || v.trim().isEmpty) {
-                                      return 'Enter age';
-                                    }
+                                    if (v == null || v.trim().isEmpty) return 'Enter age';
                                     final n = int.tryParse(v.trim());
                                     if (n == null || n <= 0) return 'Enter a valid age';
                                     return null;
                                   },
                                   onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
                                 ),
-                                SizedBox(height: screenHeight * 0.015),
+                                SizedBox(height: screenHeight * 0.012),
                                 DropdownButtonFormField<String>(
                                   decoration: InputDecoration(
                                     labelText: 'Gender',
                                     filled: true,
-                                    fillColor: const Color.fromRGBO(255, 255, 255, 0.9),
+                                    fillColor: const Color.fromRGBO(255, 255, 255, 0.95),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(color: Colors.grey.shade300),
                                     ),
-                                    prefixIcon: const Icon(Icons.transgender),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(color: Colors.grey.shade300),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: const BorderSide(color: Color(0xFF2196F3), width: 2),
+                                    ),
+                                    prefixIcon: const Icon(Icons.transgender, size: 20),
                                     contentPadding: EdgeInsets.symmetric(
-                                      vertical: screenHeight * 0.02,
-                                      horizontal: screenWidth * 0.04,
+                                      vertical: screenHeight * 0.016,
+                                      horizontal: screenWidth * 0.035,
                                     ),
                                   ),
                                   hint: const Text('Select Gender'),
@@ -426,71 +409,42 @@ class _LoginScreenState extends State<LoginScreen> {
                                   },
                                   menuMaxHeight: screenHeight * 0.3,
                                 ),
-                                SizedBox(height: screenHeight * 0.015),
+                                SizedBox(height: screenHeight * 0.012),
                               ],
 
-                              TextFormField(
+                              _buildTextField(
                                 controller: _usernameCtrl,
                                 focusNode: _usernameFocus,
-                                textInputAction: TextInputAction.next,
-                                autofillHints: const [AutofillHints.username],
-                                decoration: InputDecoration(
-                                  labelText: 'Username',
-                                  filled: true,
-                                  fillColor: const Color.fromRGBO(255, 255, 255, 0.9),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  prefixIcon: const Icon(Icons.person_outline),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    vertical: screenHeight * 0.02,
-                                    horizontal: screenWidth * 0.04,
-                                  ),
-                                ),
+                                label: 'Username',
+                                icon: Icons.person_outline,
+                                autofillHints: [AutofillHints.username],
                                 validator: (v) {
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Enter username';
-                                  }
-                                  if (v.trim().length < 3) {
-                                    return 'At least 3 characters';
-                                  }
+                                  if (v == null || v.trim().isEmpty) return 'Enter username';
+                                  if (v.trim().length < 3) return 'At least 3 characters';
                                   return null;
                                 },
                                 onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
                               ),
-                              SizedBox(height: screenHeight * 0.015),
+                              SizedBox(height: screenHeight * 0.012),
 
-                              TextFormField(
+                              _buildTextField(
                                 controller: _passwordCtrl,
                                 focusNode: _passwordFocus,
+                                label: 'Password',
+                                icon: Icons.lock_outline,
                                 obscureText: _obscure,
-                                textInputAction: TextInputAction.done,
-                                autofillHints: const [AutofillHints.password],
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  filled: true,
-                                  fillColor: const Color.fromRGBO(255, 255, 255, 0.9),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                autofillHints: [AutofillHints.password],
+                                suffixIcon: IconButton(
+                                  tooltip: _obscure ? 'Show password' : 'Hide password',
+                                  icon: Icon(
+                                    _obscure ? Icons.visibility_off : Icons.visibility,
+                                    size: 20,
                                   ),
-                                  prefixIcon: const Icon(Icons.lock_outline),
-                                  suffixIcon: IconButton(
-                                    tooltip: _obscure ? 'Show password' : 'Hide password',
-                                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                                    onPressed: () => setState(() => _obscure = !_obscure),
-                                  ),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    vertical: screenHeight * 0.02,
-                                    horizontal: screenWidth * 0.04,
-                                  ),
+                                  onPressed: () => setState(() => _obscure = !_obscure),
                                 ),
                                 validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Enter password';
-                                  }
-                                  if (v.length < 4) {
-                                    return 'At least 4 characters';
-                                  }
+                                  if (v == null || v.isEmpty) return 'Enter password';
+                                  if (v.length < 4) return 'At least 4 characters';
                                   return null;
                                 },
                                 onFieldSubmitted: (_) {
@@ -498,11 +452,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                 },
                               ),
 
-                              SizedBox(height: screenHeight * 0.025),
+                              SizedBox(height: screenHeight * 0.02),
 
                               SizedBox(
                                 width: double.infinity,
-                                height: (screenHeight * 0.06).clamp(44.0, 56.0),
+                                height: (screenHeight * 0.058).clamp(46.0, 54.0),
                                 child: ElevatedButton(
                                   onPressed: _loading ? null : _submit,
                                   style: ElevatedButton.styleFrom(
@@ -510,7 +464,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     shadowColor: const Color.fromRGBO(33, 150, 243, 0.3),
                                     padding: EdgeInsets.zero,
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(10),
                                     ),
                                     elevation: 4,
                                   ),
@@ -518,23 +472,23 @@ class _LoginScreenState extends State<LoginScreen> {
                                     decoration: BoxDecoration(
                                       gradient: const LinearGradient(
                                         colors: [
-                                          Color.fromRGBO(33, 150, 243, 0.8),
-                                          Color.fromRGBO(63, 81, 181, 0.8),
+                                          Color.fromRGBO(33, 150, 243, 0.85),
+                                          Color.fromRGBO(63, 81, 181, 0.85),
                                         ],
                                         begin: Alignment.topLeft,
                                         end: Alignment.bottomRight,
                                       ),
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Container(
                                       alignment: Alignment.center,
                                       child: _loading
                                           ? SizedBox(
-                                              width: (screenHeight * 0.03).clamp(20.0, 24.0),
-                                              height: (screenHeight * 0.03).clamp(20.0, 24.0),
+                                              width: (screenHeight * 0.028).clamp(20.0, 24.0),
+                                              height: (screenHeight * 0.028).clamp(20.0, 24.0),
                                               child: const CircularProgressIndicator(
                                                 color: Colors.white,
-                                                strokeWidth: 2.2,
+                                                strokeWidth: 2.5,
                                               ),
                                             )
                                           : Text(
@@ -542,7 +496,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontWeight: FontWeight.w600,
-                                                fontSize: (screenWidth * 0.04).clamp(14.0, 18.0),
+                                                fontSize: (screenWidth * 0.04).clamp(15.0, 17.0),
+                                                letterSpacing: 0.5,
                                               ),
                                             ),
                                     ),
@@ -550,29 +505,46 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
 
-                              SizedBox(height: screenHeight * 0.015),
+                              SizedBox(height: screenHeight * 0.012),
 
                               TextButton(
                                 onPressed: _loading ? null : _toggleMode,
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: screenHeight * 0.01,
+                                    horizontal: screenWidth * 0.02,
+                                  ),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
                                 child: Text(
                                   _isRegisterMode
                                       ? 'Already have an account? Sign in'
                                       : 'Don\'t have an account? Register',
                                   style: TextStyle(
-                                    fontSize: (screenWidth * 0.035).clamp(12.0, 16.0),
+                                    fontSize: (screenWidth * 0.034).clamp(12.5, 14.5),
+                                    color: const Color(0xFF1976D2),
                                   ),
                                 ),
                               ),
 
                               if (!_isRegisterMode) ...[
-                                SizedBox(height: screenHeight * 0.008),
+                                SizedBox(height: screenHeight * 0.002),
                                 TextButton(
                                   onPressed: _loading ? null : _deleteAccount,
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: screenHeight * 0.008,
+                                      horizontal: screenWidth * 0.02,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
                                   child: Text(
                                     'Delete my account',
                                     style: TextStyle(
-                                      fontSize: (screenWidth * 0.035).clamp(12.0, 16.0),
-                                      color: Colors.red,
+                                      fontSize: (screenWidth * 0.033).clamp(12.0, 14.0),
+                                      color: Colors.red.shade700,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -592,7 +564,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      SizedBox(height: screenHeight * 0.02),
+                      SizedBox(height: screenHeight * 0.015),
                     ],
                   ),
                 ),
@@ -601,6 +573,64 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    FocusNode? focusNode,
+    required String label,
+    required IconData icon,
+    bool obscureText = false,
+    TextInputType? keyboardType,
+    List<String>? autofillHints,
+    Widget? suffixIcon,
+    String? Function(String?)? validator,
+    void Function(String)? onFieldSubmitted,
+  }) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    return TextFormField(
+      controller: controller,
+      focusNode: focusNode,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      textInputAction: TextInputAction.next,
+      autofillHints: autofillHints,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: const Color.fromRGBO(255, 255, 255, 0.95),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF2196F3), width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.red.shade400),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.red.shade600, width: 2),
+        ),
+        prefixIcon: Icon(icon, size: 20),
+        suffixIcon: suffixIcon,
+        contentPadding: EdgeInsets.symmetric(
+          vertical: screenHeight * 0.016,
+          horizontal: screenWidth * 0.035,
+        ),
+      ),
+      validator: validator,
+      onFieldSubmitted: onFieldSubmitted,
     );
   }
 }
@@ -627,11 +657,15 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Row(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
         children: [
-          Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
-          SizedBox(width: 8),
-          Text('Delete Account'),
+          Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 28),
+          const SizedBox(width: 10),
+          const Text(
+            'Delete Account',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
       content: Form(
@@ -642,21 +676,22 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           children: [
             const Text(
               'Enter your credentials to confirm account deletion:',
-              style: TextStyle(fontWeight: FontWeight.w500),
+              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             TextFormField(
               controller: _usernameController,
               autofocus: true,
               textInputAction: TextInputAction.next,
               decoration: InputDecoration(
                 labelText: 'Username',
-                prefixIcon: const Icon(Icons.person_outline),
+                prefixIcon: const Icon(Icons.person_outline, size: 20),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 filled: true,
                 fillColor: Colors.grey[50],
+                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) {
@@ -665,27 +700,29 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 return null;
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             TextFormField(
               controller: _passwordController,
               obscureText: _obscurePassword,
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
                 labelText: 'Password',
-                prefixIcon: const Icon(Icons.lock_outline),
+                prefixIcon: const Icon(Icons.lock_outline, size: 20),
                 suffixIcon: IconButton(
                   icon: Icon(
                     _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    size: 20,
                   ),
                   onPressed: () {
                     setState(() => _obscurePassword = !_obscurePassword);
                   },
                 ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 filled: true,
                 fillColor: Colors.grey[50],
+                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
               ),
               validator: (v) {
                 if (v == null || v.isEmpty) {
@@ -707,19 +744,19 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.red[50],
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.red[200]!),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.red, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
+                  Icon(Icons.info_outline, color: Colors.red.shade700, size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
                     child: Text(
                       'This will permanently delete all your data!',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.red,
+                        color: Color(0xFFD32F2F),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -733,7 +770,10 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w500),
+          ),
         ),
         ElevatedButton(
           onPressed: () {
@@ -745,10 +785,12 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             }
           },
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.red.shade600,
             foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           ),
-          child: const Text('Continue'),
+          child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w600)),
         ),
       ],
     );
