@@ -30,6 +30,9 @@ class _DashboardPageState extends State<DashboardPage> {
   int _overall = 0;
   bool _quizAvailable = false;
 
+  // new: display name (will try to read fullname from DB; fallback to username)
+  String _displayName = '';
+
   List<bool> _unlocked = [];
   static const int _unlockThreshold = 90;
   static const int _quizUnlockThreshold = 80;
@@ -41,11 +44,13 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
+    _displayName = widget.username; // default until we fetch fullname
     _init();
   }
 
   Future<void> _init() async {
     debugPrint('[Dashboard] ============ INITIALIZING DASHBOARD ============');
+    await _loadFullName(); // <-- load fullname from users table (if present)
     await _debugPrintAssetManifest();
     await discoverAndSeedSvgs();
     await _loadRows();
@@ -54,10 +59,41 @@ class _DashboardPageState extends State<DashboardPage> {
     } catch (e) {
       debugPrint('[Dashboard] Debug dump failed: $e');
     }
-    
+
     _checkAndShowQuizIfAvailable();
-    
+
     debugPrint('[Dashboard] ============ INITIALIZATION COMPLETE ============');
+  }
+
+  /// Attempt to read `fullname` from the users table for the provided username.
+  /// If no fullname is found or any error occurs, fall back to widget.username.
+  Future<void> _loadFullName() async {
+    try {
+      final database = await _db.db;
+      final rows = await database.query(
+        'users',
+        columns: ['fullname'],
+        where: 'username = ?',
+        whereArgs: [widget.username],
+        limit: 1,
+      );
+
+      if (rows.isNotEmpty) {
+        final fn = (rows.first['fullname'] as String?) ?? '';
+        if (fn.trim().isNotEmpty) {
+          if (mounted) setState(() => _displayName = fn);
+          debugPrint('[Dashboard] Loaded fullname for ${widget.username}: $fn');
+          return;
+        }
+      }
+
+      // fallback
+      if (mounted) setState(() => _displayName = widget.username);
+      debugPrint('[Dashboard] Fullname not found; using username instead');
+    } catch (e) {
+      debugPrint('[Dashboard] _loadFullName failed: $e');
+      if (mounted) setState(() => _displayName = widget.username);
+    }
   }
 
   Future<void> _loadRows() async {
@@ -86,18 +122,20 @@ class _DashboardPageState extends State<DashboardPage> {
       setState(() => _rows = rows);
 
       final totalAreaSum = _rows.fold<double>(
-        0.0, 
-        (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0)
+        0.0,
+        (a, r) => a + ((r['total_area'] as num?)?.toDouble() ?? 0.0),
       );
       final coloredAreaSum = _rows.fold<double>(
-        0.0, 
-        (a, r) => a + ((r['colored_area'] as num?)?.toDouble() ?? 0.0)
+        0.0,
+        (a, r) => a + ((r['colored_area'] as num?)?.toDouble() ?? 0.0),
       );
-      
-      final overallRaw = totalAreaSum == 0 ? 0.0 : (coloredAreaSum / totalAreaSum * 100.0);
+
+      final overallRaw =
+          totalAreaSum == 0 ? 0.0 : (coloredAreaSum / totalAreaSum * 100.0);
       _overall = _boostProgressPercent(overallRaw, coloredAreaSum, totalAreaSum);
 
-      debugPrint('[Dashboard] Overall progress: $_overall% (raw: ${overallRaw.toStringAsFixed(2)}%)');
+      debugPrint(
+          '[Dashboard] Overall progress: $_overall% (raw: ${overallRaw.toStringAsFixed(2)}%)');
 
       _computeUnlockedStates();
     } catch (e, st) {
@@ -127,7 +165,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     final wasAvailable = _quizAvailable;
     final isNowAvailable = displayPercent >= _quizUnlockThreshold;
-    
+
     setState(() {
       _quizAvailable = isNowAvailable;
     });
@@ -214,11 +252,11 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String _getMotivationalMessage() {
     if (_rows.isEmpty) return 'Start your coloring journey! 🎨';
-    
+
     if (_quizAvailable) {
       return 'Amazing! Quiz unlocked! Tap the button below to test your knowledge!';
     }
-    
+
     if (_overall == 0) {
       return 'Welcome! Start coloring the first page to begin your learning adventure!';
     } else if (_overall < 20) {
@@ -242,9 +280,7 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final manifest = await rootBundle.loadString('AssetManifest.json');
       final map = json.decode(manifest) as Map<String, dynamic>;
-      final svgs = map.keys
-        .where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg'))
-        .toList()
+      final svgs = map.keys.where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg')).toList()
         ..sort();
       debugPrint('[Dashboard] Found ${svgs.length} SVG assets: ${svgs.join(", ")}');
     } catch (e) {
@@ -256,9 +292,7 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final manifest = await rootBundle.loadString('AssetManifest.json');
       final map = json.decode(manifest) as Map<String, dynamic>;
-      final svgs = map.keys
-        .where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg'))
-        .toList()
+      final svgs = map.keys.where((k) => k.startsWith('assets/svgs/') && k.endsWith('.svg')).toList()
         ..sort();
 
       debugPrint('[Dashboard] Seeding ${svgs.length} SVG files to database...');
@@ -267,7 +301,7 @@ class _DashboardPageState extends State<DashboardPage> {
         try {
           final svgService = SvgService(assetPath: asset);
           await svgService.load();
-          
+
           if (svgService.doc == null) {
             debugPrint('[Dashboard] ✗ Failed to load: $asset');
             continue;
@@ -286,23 +320,23 @@ class _DashboardPageState extends State<DashboardPage> {
               pathAreas[pid] = 0.0;
             }
           }
-          
+
           final totalArea = pathAreas.values.fold(0.0, (a, b) => a + b);
-          
+
           await _db.upsertImage(
-            asset, 
-            _titleFromAsset(asset), 
-            pathAreas.length, 
-            totalArea: totalArea
+            asset,
+            _titleFromAsset(asset),
+            pathAreas.length,
+            totalArea: totalArea,
           );
           await _db.insertPathsForImage(asset, pathAreas);
-          
+
           debugPrint('[Dashboard] ✓ Seeded: $asset (${pathAreas.length} paths, area: ${totalArea.toStringAsFixed(2)})');
         } catch (e) {
           debugPrint('[Dashboard] ✗ Error seeding $asset: $e');
         }
       }
-      
+
       debugPrint('[Dashboard] Seeding complete');
     } catch (e, st) {
       debugPrint('[Dashboard] discoverAndSeedSvgs error: $e\n$st');
@@ -333,12 +367,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final n = int.parse(match.group(0)!);
       return titles[n] ?? name;
     }
-    final words = name
-      .replaceAll('-', ' ')
-      .replaceAll('_', ' ')
-      .split(' ')
-      .where((w) => w.isNotEmpty)
-      .toList();
+    final words = name.replaceAll('-', ' ').replaceAll('_', ' ').split(' ').where((w) => w.isNotEmpty).toList();
     return words.map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
   }
 
@@ -354,11 +383,11 @@ class _DashboardPageState extends State<DashboardPage> {
     if (totalAreaSum > 0 && (coloredAreaSum + _eps >= totalAreaSum)) {
       return 100;
     }
-    
+
     if (rawPercent >= 99.0) {
       return 100;
     }
-    
+
     if (rawPercent <= 0.0) return 0;
 
     final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
@@ -377,7 +406,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if (boosted >= 99.0 && rawPercent < 97.0) {
       boosted = 98.0;
     }
-    
+
     if (boosted > 98.0 && rawPercent < 98.0) {
       boosted = 98.0;
     }
@@ -388,10 +417,10 @@ class _DashboardPageState extends State<DashboardPage> {
   void _computeUnlockedStates() {
     _unlocked = List<bool>.filled(_rows.length, false);
     if (_rows.isEmpty) return;
-    
+
     _unlocked[0] = true;
     debugPrint('[Dashboard] Image 0 unlocked by default');
-    
+
     for (var i = 1; i < _rows.length; i++) {
       final prev = _rows[i - 1];
       final prevTotal = (prev['total_area'] as num?)?.toDouble() ?? 0.0;
@@ -425,9 +454,9 @@ class _DashboardPageState extends State<DashboardPage> {
       debugPrint('[Dashboard] Failed to load rheumatic info: $e');
       content = '# Information Not Available\n\nSorry, we could not load the information at this time. Please try again later.';
     }
-    
+
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -463,29 +492,28 @@ class _DashboardPageState extends State<DashboardPage> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(
-                        Icons.favorite, 
-                        color: Color(0xFF2D7A72), 
-                        size: 28
+                        Icons.favorite,
+                        color: Color(0xFF2D7A72),
+                        size: 28,
                       ),
                     ),
                     const SizedBox(width: 12),
-                 Flexible(
-  child: FittedBox(
-    fit: BoxFit.scaleDown,
-    alignment: Alignment.centerLeft,
-    child: const Text(
-      'Rheumatic Heart Disease',
-      style: TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF2D7A72),
-      ),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    ),
-  ),
-),
-
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: const Text(
+                          'Rheumatic Heart Disease',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2D7A72),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.close, color: Color(0xFF2D7A72)),
                       onPressed: () => Navigator.pop(ctx),
@@ -494,7 +522,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ],
                 ),
               ),
-              
+
               // Markdown Content
               Flexible(
                 child: Container(
@@ -566,7 +594,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ),
                       ),
-                      blockquotePadding: const EdgeInsets.all(12),
+                      blockquotePadding: BoxDecoration().toString() == '' ? null : const EdgeInsets.all(12), // noop safe
                       code: const TextStyle(
                         fontSize: 14,
                         backgroundColor: Color(0xFFF5F5F5),
@@ -582,10 +610,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         try {
                           final uri = Uri.parse(url);
                           if (await canLaunchUrl(uri)) {
-                            await launchUrl(
-                              uri, 
-                              mode: LaunchMode.externalApplication
-                            );
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
                           } else {
                             debugPrint('[Dashboard] Cannot launch URL: $url');
                             if (ctx.mounted) {
@@ -622,7 +647,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
 
     int displayPercent;
-    
+
     if (storedPercent > 0 && storedPercent <= 100) {
       displayPercent = storedPercent.round();
     } else {
@@ -642,10 +667,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => ColoringPage(
-                      assetPath: id, 
-                      title: title, 
-                      username: widget.username
-                    )
+                        assetPath: id, title: title, username: widget.username),
                   ),
                 );
                 debugPrint('[Dashboard] Returned from coloring page, reloading...');
@@ -655,11 +677,7 @@ class _DashboardPageState extends State<DashboardPage> {
             : () {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Complete previous image to $_unlockThreshold% to unlock'),
-                      duration: const Duration(seconds: 2),
-                    )
-                  );
+                      SnackBar(content: Text('Complete previous image to $_unlockThreshold% to unlock'), duration: const Duration(seconds: 2)));
                 }
               },
         child: Container(
@@ -667,9 +685,7 @@ class _DashboardPageState extends State<DashboardPage> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(color: Color(0x11000000), blurRadius: 8)
-            ],
+            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 8)],
           ),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
@@ -694,15 +710,11 @@ class _DashboardPageState extends State<DashboardPage> {
                           return SvgPicture.asset(
                             id,
                             fit: BoxFit.cover,
-                            placeholderBuilder: (_) => const Center(
-                              child: CircularProgressIndicator(strokeWidth: 2)
-                            ),
+                            placeholderBuilder: (_) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                           );
                         } catch (e) {
                           debugPrint('[Dashboard] Failed to load thumbnail for $id: $e');
-                          return const Center(
-                            child: Text('🎨', style: TextStyle(fontSize: 32))
-                          );
+                          return const Center(child: Text('🎨', style: TextStyle(fontSize: 32)));
                         }
                       }),
                     ),
@@ -713,11 +725,8 @@ class _DashboardPageState extends State<DashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          title, 
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700, 
-                            fontSize: 15
-                          ),
+                          title,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -734,10 +743,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10, 
-                                vertical: 4
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
                                 color: pillColor,
@@ -755,15 +761,10 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          displayPercent == 0 
+                          displayPercent == 0
                               ? (unlocked ? 'Not started • Tap to open' : 'Locked • Complete previous image')
-                              : (displayPercent < 100 
-                                  ? 'In progress ($displayPercent%) • Tap to continue' 
-                                  : 'Completed • Tap to view'),
-                          style: TextStyle(
-                            color: Colors.grey.shade700, 
-                            fontSize: 12
-                          ),
+                              : (displayPercent < 100 ? 'In progress ($displayPercent%) • Tap to continue' : 'Completed • Tap to view'),
+                          style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
                         )
                       ],
                     ),
@@ -783,7 +784,7 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (context, constraints) {
         final screenWidth = constraints.maxWidth;
         final isSmallScreen = screenWidth < 600;
-        
+
         return Padding(
           padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.03),
           child: Container(
@@ -1023,11 +1024,9 @@ class _DashboardPageState extends State<DashboardPage> {
         titleSpacing: 0,
         title: LayoutBuilder(
           builder: (context, constraints) {
-            String displayUsername = widget.username;
-            final maxUsernameLength = constraints.maxWidth > 600 ? 15 : 10;
-            if (displayUsername.length > maxUsernameLength) {
-              displayUsername = '${displayUsername.substring(0, maxUsernameLength)}...';
-            }
+            // Show the full name (fullname from registration) without trimming or truncation.
+            // We fetch fullname from the users table earlier; fallback is the username string.
+            final displayUsername = _displayName;
 
             return Padding(
               padding: EdgeInsets.symmetric(horizontal: constraints.maxWidth * 0.03),
@@ -1050,15 +1049,16 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ),
                         const SizedBox(height: 4),
+                        // Display full name here without trimming. Allow wrapping so long names are fully visible.
                         Text(
                           'Hi, $displayUsername 👋',
                           style: TextStyle(
                             fontSize: constraints.maxWidth > 600 ? 18 : 15,
                             fontWeight: FontWeight.w700,
                           ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                          softWrap: false,
+                          overflow: TextOverflow.visible,
+                          softWrap: true,
+                          maxLines: null, // allow full wrapping (no truncation)
                         ),
                       ],
                     ),
