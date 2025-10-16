@@ -695,7 +695,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         decoration: BoxDecoration(
           color: active ? const Color(0xFFFFFBED) : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -703,16 +703,30 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
           boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 6, offset: Offset(0, 4))],
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.max,
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(color: active ? Colors.deepPurple : Colors.grey.shade100, shape: BoxShape.circle),
-              child: Icon(icon, size: 18, color: active ? Colors.white : Colors.black54),
+              child: Icon(icon, size: 16, color: active ? Colors.white : Colors.black54),
             ),
-            const SizedBox(width: 10),
-            Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: active ? Colors.deepPurple : Colors.black87)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: active ? Colors.deepPurple : Colors.black87,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+              ),
+            ),
+            const SizedBox(width: 2),
           ],
         ),
       ),
@@ -1022,7 +1036,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
                       ),
                     ),
 
-                    SizedBox(height: screenHeight * 0.00001),
+                    SizedBox(height: screenHeight * 0.020),
 
                     // Tool Pills - Responsive
                     Builder(builder: (context) {
