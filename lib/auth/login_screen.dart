@@ -1,9 +1,10 @@
-// FINAL PRODUCTION-READY login_screen.dart
+// UPDATED login_screen.dart with improved gender card selector and adjusted validation label styling
 // Replace your entire lib/auth/login_screen.dart file with this code
 
 import 'package:flutter/material.dart';
 import '../services/db_service.dart';
 import '../pages/dashboard_page.dart';
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,6 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _gender;
+  bool _showGenderError = false;
   final List<String> _genderOptions = ['Male', 'Female'];
 
   @override
@@ -42,6 +44,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
+    setState(() => _showGenderError = false);
+    
+    if (_isRegisterMode && _gender == null) {
+      setState(() => _showGenderError = true);
+      return;
+    }
+    
     if (!_formKey.currentState!.validate()) return;
 
     final username = _usernameCtrl.text.trim();
@@ -115,6 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _fullnameCtrl.clear();
     _ageCtrl.clear();
     _gender = null;
+    _showGenderError = false;
     FocusScope.of(context).unfocus();
     
     setState(() {
@@ -122,7 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  Future<void> _deleteAccount() async {
+  /*Future<void> _deleteAccount() async {
     if (!mounted) return;
 
     final credentials = await showDialog<Map<String, String>>(
@@ -213,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     }
-  }
+  }*/
 
   Widget _buildLogo() {
     return LayoutBuilder(
@@ -372,43 +382,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
                                 ),
                                 SizedBox(height: screenHeight * 0.012),
-                                DropdownButtonFormField<String>(
-                                  decoration: InputDecoration(
-                                    labelText: 'Gender',
-                                    filled: true,
-                                    fillColor: const Color.fromRGBO(255, 255, 255, 0.95),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: BorderSide(color: Colors.grey.shade300),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: BorderSide(color: Colors.grey.shade300),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: const BorderSide(color: Color(0xFF2196F3), width: 2),
-                                    ),
-                                    prefixIcon: const Icon(Icons.transgender, size: 20),
-                                    contentPadding: EdgeInsets.symmetric(
-                                      vertical: screenHeight * 0.016,
-                                      horizontal: screenWidth * 0.035,
-                                    ),
-                                  ),
-                                  hint: const Text('Select Gender'),
-                                  isExpanded: true,
-                                  items: _genderOptions
-                                      .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                                      .toList(),
-                                  onChanged: (v) {
-                                    if (v != null) setState(() => _gender = v);
-                                  },
-                                  validator: (v) {
-                                    if (v == null) return 'Please select gender';
-                                    return null;
-                                  },
-                                  menuMaxHeight: screenHeight * 0.3,
-                                ),
+                                _buildGenderSelector(),
                                 SizedBox(height: screenHeight * 0.012),
                               ],
 
@@ -424,6 +398,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   return null;
                                 },
                                 onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
+                                suppressLabelErrorColor: true, // keep label color unchanged on error
                               ),
                               SizedBox(height: screenHeight * 0.012),
 
@@ -450,6 +425,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 onFieldSubmitted: (_) {
                                   if (!_loading) _submit();
                                 },
+                                suppressLabelErrorColor: true, // keep label color unchanged on error
                               ),
 
                               SizedBox(height: screenHeight * 0.02),
@@ -527,7 +503,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               ),
-
+/*
                               if (!_isRegisterMode) ...[
                                 SizedBox(height: screenHeight * 0.002),
                                 TextButton(
@@ -549,7 +525,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                 ),
-                              ],
+                              ],*/
 
                               SizedBox(height: screenHeight * 0.008),
                               Text(
@@ -576,6 +552,191 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // NEW: redesigned full-width gender card selector (keeps everything inside parent card)
+// Redesigned gender selector with identical styling to text fields
+  Widget _buildGenderSelector() {
+    //final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 14.0),
+          decoration: BoxDecoration(
+            color: const Color.fromRGBO(255, 255, 255, 0.95),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _showGenderError ? Colors.red.shade400 : Colors.grey.shade300,
+              width: _showGenderError ? 1.0 : 1.0,
+            ),
+          ),
+          child: Row(
+            children: [
+              // Left: gender label with icon (matching text field style)
+              Icon(Icons.transgender, size: 20, color: Colors.grey.shade600),
+              const SizedBox(width: 12),
+              Text(
+                'Gender',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                  color: Colors.grey.shade700,
+                  letterSpacing: 0.15,
+                ),
+              ),
+
+              const SizedBox(width: 16),
+
+              // Right: gender selector with full background coverage
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final totalWidth = constraints.maxWidth;
+                    final gap = 8.0; // gap between options
+                    final optionWidth = (totalWidth - gap) / 2;
+                    final selectedIndex = _gender == null ? -1 : _genderOptions.indexOf(_gender!);
+
+                    return SizedBox(
+                      height: 40,
+                      child: Stack(
+                        children: [
+                          // Animated sliding background (FULL coverage)
+                          if (selectedIndex >= 0)
+                            AnimatedPositioned(
+                              left: selectedIndex == 0 ? 0 : (optionWidth + gap),
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 250),
+                                width: optionWidth,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: _gender == 'Male'
+                                        ? [Colors.blue.shade100, Colors.blue.shade50]
+                                        : [Colors.pink.shade100, Colors.pink.shade50],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _gender == 'Male'
+                                        ? Colors.blue.shade300
+                                        : Colors.pink.shade300,
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                          // Options row
+                          Row(
+                            children: [
+                              // Male option
+                              _buildGenderOption(
+                                label: 'Male',
+                                icon: Icons.male,
+                                width: optionWidth,
+                                isSelected: _gender == 'Male',
+                                isMale: true,
+                              ),
+                              SizedBox(width: gap),
+                              // Female option
+                              _buildGenderOption(
+                                label: 'Female',
+                                icon: Icons.female,
+                                width: optionWidth,
+                                isSelected: _gender == 'Female',
+                                isMale: false,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Error message (matching text field validation style)
+        // Error message (matching text field validation style - no icon)
+        if (_showGenderError)
+          Padding(
+            padding: EdgeInsets.only(
+              left: screenWidth * 0.035 + 12,
+              top: 8,
+            ),
+            child: Text(
+              'Please select your gender',
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildGenderOption({
+    required String label,
+    required IconData icon,
+    required double width,
+    required bool isSelected,
+    required bool isMale,
+  }) {
+    return SizedBox(
+      width: width,
+      height: 40,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => setState(() {
+            _gender = label;
+            _showGenderError = false;
+          }),
+          child: Container(
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: isSelected
+                      ? (isMale ? Colors.blue.shade700 : Colors.pink.shade600)
+                      : Colors.grey.shade600,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected
+                        ? (isMale ? Colors.blue.shade800 : Colors.pink.shade700)
+                        : Colors.grey.shade700,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  
+  }
+
+
+  // Updated text field builder: added `suppressLabelErrorColor` to avoid coloring label red: added `suppressLabelErrorColor` to avoid coloring label red
   Widget _buildTextField({
     required TextEditingController controller,
     FocusNode? focusNode,
@@ -587,6 +748,7 @@ class _LoginScreenState extends State<LoginScreen> {
     Widget? suffixIcon,
     String? Function(String?)? validator,
     void Function(String)? onFieldSubmitted,
+    bool suppressLabelErrorColor = false,
   }) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -600,6 +762,8 @@ class _LoginScreenState extends State<LoginScreen> {
       autofillHints: autofillHints,
       decoration: InputDecoration(
         labelText: label,
+        labelStyle: suppressLabelErrorColor ? TextStyle(color: Colors.grey.shade700) : null,
+        floatingLabelStyle: suppressLabelErrorColor ? TextStyle(color: Colors.grey.shade700) : null,
         filled: true,
         fillColor: const Color.fromRGBO(255, 255, 255, 0.95),
         border: OutlineInputBorder(
@@ -796,3 +960,4 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
     );
   }
 }
+

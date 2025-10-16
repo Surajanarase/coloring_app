@@ -19,6 +19,7 @@ dependencies:
   vector_math: ^2.1.0
   flutter_markdown: ^0.6.18
   url_launcher: ^6.2.1
+  
  
 
 dev_dependencies:
