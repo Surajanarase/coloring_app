@@ -1,4 +1,4 @@
-// UPDATED login_screen.dart with improved gender card selector and adjusted validation label styling
+// UPDATED login_screen.dart with simultaneous validation for all fields
 // Replace your entire lib/auth/login_screen.dart file with this code
 
 import 'package:flutter/material.dart';
@@ -44,14 +44,20 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    setState(() => _showGenderError = false);
+    // First validate the form to show all field errors
+    final isFormValid = _formKey.currentState!.validate();
     
+    // Check gender separately for register mode
+    bool isGenderValid = true;
     if (_isRegisterMode && _gender == null) {
+      isGenderValid = false;
       setState(() => _showGenderError = true);
-      return;
+    } else {
+      setState(() => _showGenderError = false);
     }
     
-    if (!_formKey.currentState!.validate()) return;
+    // If either form or gender is invalid, return early
+    if (!isFormValid || !isGenderValid) return;
 
     final username = _usernameCtrl.text.trim();
     final password = _passwordCtrl.text;
@@ -398,7 +404,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                   return null;
                                 },
                                 onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
-                                suppressLabelErrorColor: true, // keep label color unchanged on error
                               ),
                               SizedBox(height: screenHeight * 0.012),
 
@@ -425,7 +430,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                 onFieldSubmitted: (_) {
                                   if (!_loading) _submit();
                                 },
-                                suppressLabelErrorColor: true, // keep label color unchanged on error
                               ),
 
                               SizedBox(height: screenHeight * 0.02),
@@ -552,10 +556,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // NEW: redesigned full-width gender card selector (keeps everything inside parent card)
-// Redesigned gender selector with identical styling to text fields
   Widget _buildGenderSelector() {
-    //final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Column(
@@ -569,12 +570,11 @@ class _LoginScreenState extends State<LoginScreen> {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: _showGenderError ? Colors.red.shade400 : Colors.grey.shade300,
-              width: _showGenderError ? 1.0 : 1.0,
+              width: 1.0,
             ),
           ),
           child: Row(
             children: [
-              // Left: gender label with icon (matching text field style)
               Icon(Icons.transgender, size: 20, color: Colors.grey.shade600),
               const SizedBox(width: 12),
               Text(
@@ -589,12 +589,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(width: 16),
 
-              // Right: gender selector with full background coverage
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final totalWidth = constraints.maxWidth;
-                    final gap = 8.0; // gap between options
+                    final gap = 8.0;
                     final optionWidth = (totalWidth - gap) / 2;
                     final selectedIndex = _gender == null ? -1 : _genderOptions.indexOf(_gender!);
 
@@ -602,7 +601,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       height: 40,
                       child: Stack(
                         children: [
-                          // Animated sliding background (FULL coverage)
                           if (selectedIndex >= 0)
                             AnimatedPositioned(
                               left: selectedIndex == 0 ? 0 : (optionWidth + gap),
@@ -631,10 +629,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
 
-                          // Options row
                           Row(
                             children: [
-                              // Male option
                               _buildGenderOption(
                                 label: 'Male',
                                 icon: Icons.male,
@@ -643,7 +639,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                 isMale: true,
                               ),
                               SizedBox(width: gap),
-                              // Female option
                               _buildGenderOption(
                                 label: 'Female',
                                 icon: Icons.female,
@@ -663,8 +658,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
 
-        // Error message (matching text field validation style)
-        // Error message (matching text field validation style - no icon)
         if (_showGenderError)
           Padding(
             padding: EdgeInsets.only(
@@ -732,11 +725,8 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     );
-  
   }
 
-
-  // Updated text field builder: added `suppressLabelErrorColor` to avoid coloring label red: added `suppressLabelErrorColor` to avoid coloring label red
   Widget _buildTextField({
     required TextEditingController controller,
     FocusNode? focusNode,
@@ -748,7 +738,6 @@ class _LoginScreenState extends State<LoginScreen> {
     Widget? suffixIcon,
     String? Function(String?)? validator,
     void Function(String)? onFieldSubmitted,
-    bool suppressLabelErrorColor = false,
   }) {
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -762,8 +751,8 @@ class _LoginScreenState extends State<LoginScreen> {
       autofillHints: autofillHints,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: suppressLabelErrorColor ? TextStyle(color: Colors.grey.shade700) : null,
-        floatingLabelStyle: suppressLabelErrorColor ? TextStyle(color: Colors.grey.shade700) : null,
+        labelStyle: TextStyle(color: Colors.grey.shade700),
+        floatingLabelStyle: TextStyle(color: Colors.grey.shade700),
         filled: true,
         fillColor: const Color.fromRGBO(255, 255, 255, 0.95),
         border: OutlineInputBorder(
@@ -780,11 +769,11 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.red.shade400),
+          borderSide: BorderSide(color: Colors.grey.shade300),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.red.shade600, width: 2),
+          borderSide: const BorderSide(color: Color(0xFF2196F3), width: 2),
         ),
         prefixIcon: Icon(icon, size: 20),
         suffixIcon: suffixIcon,
@@ -960,4 +949,3 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
     );
   }
 }
-
