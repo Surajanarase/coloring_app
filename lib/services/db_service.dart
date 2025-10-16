@@ -207,6 +207,50 @@ class DbService {
     return false;
   }
 
+  Future<void> deleteUser(String username) async {
+    final database = await db;
+    
+    try {
+      debugPrint('[DB] Deleting user: $username');
+      
+      // Delete all user's coloring data first (foreign key constraint)
+      await database.delete(
+        'paths',
+        where: 'username = ?',
+        whereArgs: [username],
+      );
+      debugPrint('[DB] Deleted paths for user: $username');
+      
+      await database.delete(
+        'images',
+        where: 'username = ?',
+        whereArgs: [username],
+      );
+      debugPrint('[DB] Deleted images for user: $username');
+      
+      // Finally delete the user account
+      final deletedRows = await database.delete(
+        'users',
+        where: 'username = ?',
+        whereArgs: [username],
+      );
+      
+      if (deletedRows > 0) {
+        debugPrint('[DB] ✓ User deleted successfully: $username');
+        
+        // Clear current user if they deleted their own account
+        if (_currentUsername == username) {
+          _currentUsername = null;
+        }
+      } else {
+        debugPrint('[DB] ✗ User not found: $username');
+      }
+    } catch (e) {
+      debugPrint('[DB] Error deleting user: $e');
+      rethrow;
+    }
+  }
+
   // ============ IMAGE + PATH LOGIC ============
 
   Future<void> upsertImage(
@@ -472,7 +516,7 @@ class DbService {
     return results;
   }
 
-    /// Return all path rows for the given image and current user.
+  /// Return all path rows for the given image and current user.
   /// Used by the UI to determine which path IDs were inserted (i.e. passed area filtering).
   Future<List<Map<String, dynamic>>> getPathsForImage(String imageId) async {
     if (_currentUsername == null) {
@@ -491,7 +535,6 @@ class DbService {
     debugPrint('[DB] getPathsForImage($imageId) -> ${rows.length} rows');
     return rows;
   }
-
 
   Future<void> resetImageProgress(String imageId) async {
     if (_currentUsername == null) {

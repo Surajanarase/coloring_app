@@ -1,4 +1,5 @@
-// lib/auth/login_screen.dart - DEVICE COMPATIBLE VERSION
+// COMPLETE READY-TO-USE login_screen.dart
+// Replace your entire lib/auth/login_screen.dart file with this code
 
 import 'package:flutter/material.dart';
 import '../services/db_service.dart';
@@ -108,15 +109,116 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _toggleMode() {
+    _formKey.currentState?.reset();
+    _usernameCtrl.clear();
+    _passwordCtrl.clear();
+    _fullnameCtrl.clear();
+    _ageCtrl.clear();
+    _gender = null;
+    FocusScope.of(context).unfocus();
+    
     setState(() {
       _isRegisterMode = !_isRegisterMode;
     });
   }
 
+  Future<void> _deleteAccount() async {
+    if (!mounted) return;
+
+    // Show dialog to re-enter credentials
+    final credentials = await showDialog<Map<String, String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _DeleteAccountDialog(),
+    );
+
+    if (credentials == null || !mounted) return;
+
+    final username = credentials['username']!;
+    final password = credentials['password']!;
+
+    setState(() => _loading = true);
+
+    try {
+      final valid = await _db.authenticateUser(username, password);
+
+      if (!mounted) return;
+
+      if (!valid) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ Invalid username or password'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final finalConfirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('⚠️ Final Confirmation'),
+          content: Text(
+            'Delete account "$username"?\n\nThis will permanently delete:\n• Your account\n• All your coloring progress\n• All saved images\n\nThis action CANNOT be undone!',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('DELETE FOREVER'),
+            ),
+          ],
+        ),
+      );
+
+      if (finalConfirm != true || !mounted) {
+        setState(() => _loading = false);
+        return;
+      }
+
+      await _db.deleteUser(username);
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ Account deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      _usernameCtrl.clear();
+      _passwordCtrl.clear();
+      _fullnameCtrl.clear();
+      _ageCtrl.clear();
+      setState(() {
+        _gender = null;
+        _isRegisterMode = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting account: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Widget _buildLogo() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Make logo responsive to screen size
         final logoSize = MediaQuery.of(context).size.width * 0.4;
         final clampedLogoSize = logoSize.clamp(120.0, 180.0);
         
@@ -154,13 +256,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get safe area padding and screen dimensions
     final mediaQuery = MediaQuery.of(context);
     final screenHeight = mediaQuery.size.height;
     final screenWidth = mediaQuery.size.width;
     final safePadding = mediaQuery.padding;
     
-    // Calculate responsive padding
     final horizontalPadding = screenWidth * 0.05;
     final verticalPadding = screenHeight * 0.02;
     
@@ -189,7 +289,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: 600, // Max width for tablets
+                    maxWidth: 600,
                     minHeight: screenHeight - safePadding.top - safePadding.bottom,
                   ),
                   child: Column(
@@ -231,7 +331,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               SizedBox(height: screenHeight * 0.01),
                               Text(
-                                'Use username and password to sign in',
+                                _isRegisterMode
+                                    ? 'Fill in your details to create account'
+                                    : 'Use username and password to sign in',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: (screenWidth * 0.035).clamp(12.0, 16.0),
@@ -311,6 +413,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                   hint: const Text('Select Gender'),
+                                  isExpanded: true,
                                   items: _genderOptions
                                       .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                                       .toList(),
@@ -321,6 +424,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     if (v == null) return 'Please select gender';
                                     return null;
                                   },
+                                  menuMaxHeight: screenHeight * 0.3,
                                 ),
                                 SizedBox(height: screenHeight * 0.015),
                               ],
@@ -460,6 +564,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
 
+                              if (!_isRegisterMode) ...[
+                                SizedBox(height: screenHeight * 0.008),
+                                TextButton(
+                                  onPressed: _loading ? null : _deleteAccount,
+                                  child: Text(
+                                    'Delete my account',
+                                    style: TextStyle(
+                                      fontSize: (screenWidth * 0.035).clamp(12.0, 16.0),
+                                      color: Colors.red,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+
                               SizedBox(height: screenHeight * 0.008),
                               Text(
                                 "This app helps children learn colours and spread awareness ❤️",
@@ -482,6 +601,156 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// Delete Account Dialog Widget
+class _DeleteAccountDialog extends StatefulWidget {
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+          SizedBox(width: 8),
+          Text('Delete Account'),
+        ],
+      ),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter your credentials to confirm account deletion:',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _usernameController,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Username',
+                prefixIcon: const Icon(Icons.person_outline),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'Enter your username';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  ),
+                  onPressed: () {
+                    setState(() => _obscurePassword = !_obscurePassword);
+                  },
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+              validator: (v) {
+                if (v == null || v.isEmpty) {
+                  return 'Enter your password';
+                }
+                return null;
+              },
+              onFieldSubmitted: (_) {
+                if (_formKey.currentState!.validate()) {
+                  Navigator.pop(context, {
+                    'username': _usernameController.text.trim(),
+                    'password': _passwordController.text,
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red[200]!),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This will permanently delete all your data!',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (_formKey.currentState!.validate()) {
+              Navigator.pop(context, {
+                'username': _usernameController.text.trim(),
+                'password': _passwordController.text,
+              });
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Continue'),
+        ),
+      ],
     );
   }
 }
