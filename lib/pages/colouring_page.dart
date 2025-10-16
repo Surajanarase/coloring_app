@@ -695,7 +695,7 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
         decoration: BoxDecoration(
           color: active ? const Color(0xFFFFFBED) : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -704,29 +704,32 @@ class _ColoringPageState extends State<ColoringPage> with SingleTickerProviderSt
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.max,
+          mainAxisSize: MainAxisSize.min,
           children: [
+            const SizedBox(width: 4),
             Container(
               width: 32,
               height: 32,
-              decoration: BoxDecoration(color: active ? Colors.deepPurple : Colors.grey.shade100, shape: BoxShape.circle),
-              child: Icon(icon, size: 16, color: active ? Colors.white : Colors.black54),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: active ? Colors.deepPurple : Colors.black87,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.visible,
+              decoration: BoxDecoration(
+                color: active ? Colors.deepPurple : Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Icon(icon, size: 16, color: active ? Colors.white : Colors.black54),
               ),
             ),
-            const SizedBox(width: 2),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                color: active ? Colors.deepPurple : Colors.black87,
+                letterSpacing: 0.2,
+              ),
+              maxLines: 1,
+            ),
+            const SizedBox(width: 4),
           ],
         ),
       ),
