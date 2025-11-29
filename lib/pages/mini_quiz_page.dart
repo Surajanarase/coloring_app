@@ -1,4 +1,4 @@
-// lib/pages/quiz_page.dart
+// lib/pages/mini_quiz_page.dart
 import 'package:flutter/material.dart';
 import '../services/db_service.dart';
 
@@ -16,142 +16,202 @@ class QuizQuestion {
   });
 }
 
-class QuizPage extends StatefulWidget {
+class MiniQuizPage extends StatefulWidget {
   final String username;
+  final String quizId;   // e.g. "mini1", "mini2", ...
+  final int quizNumber;  // 1..4
 
-  const QuizPage({super.key, required this.username});
+  const MiniQuizPage({
+    super.key,
+    required this.username,
+    required this.quizId,
+    required this.quizNumber,
+  });
 
   @override
-  State<QuizPage> createState() => _QuizPageState();
+  State<MiniQuizPage> createState() => _MiniQuizPageState();
 }
 
-class _QuizPageState extends State<QuizPage> {
+class _MiniQuizPageState extends State<MiniQuizPage> {
   final DbService _db = DbService();
 
   int _currentQuestionIndex = 0;
   int? _selectedAnswer;
   bool _showResult = false;
   int _score = 0;
-  final List<int?> _userAnswers = List.filled(10, null);
 
-  final List<QuizQuestion> _questions = [
-    QuizQuestion(
-      question: "What should Maria do when she has a sore throat?",
-      options: [
-        "Wait and see if it gets better",
-        "Go to the health clinic immediately",
-        "Take a home remedy only",
-        "Play with friends"
-      ],
-      correctAnswer: 1,
-      explanation: "If you have a sore throat, you must go to the clinic immediately to get proper treatment.",
-    ),
-    QuizQuestion(
-      question: "Can a home remedy stop rheumatic heart disease?",
-      options: [
-        "Yes, home remedies cure everything",
-        "No, home remedies cannot stop rheumatic heart disease",
-        "Only for children",
-        "Sometimes it works"
-      ],
-      correctAnswer: 1,
-      explanation: "A home remedy cannot stop a person from getting rheumatic fever or rheumatic heart disease. You need proper medical treatment.",
-    ),
-    QuizQuestion(
-      question: "What happened to Maria's heart when she didn't get proper treatment?",
-      options: [
-        "Her heart became very sick",
-        "Nothing happened",
-        "It got stronger",
-        "It healed on its own"
-      ],
-      correctAnswer: 0,
-      explanation: "Maria's heart became very sick because she didn't get proper treatment for her sore throat at the clinic.",
-    ),
-    QuizQuestion(
-      question: "How long should you take medicine for a sore throat?",
-      options: [
-        "1 day",
-        "5 days",
-        "10 days as directed",
-        "Until you feel better"
-      ],
-      correctAnswer: 3,
-      explanation: "You must take the medicine exactly as directed for the full 10 days, even if you start feeling better.",
-    ),
-    QuizQuestion(
-      question: "What symptoms did Maria have besides a sore throat?",
-      options: [
-        "Fever and joint pain",
-        "Only a cough",
-        "Stomach ache",
-        "Headache only"
-      ],
-      correctAnswer: 0,
-      explanation: "Maria had a fever, and her elbows, knees, and other joints hurt. These are symptoms of rheumatic fever.",
-    ),
-    QuizQuestion(
-      question: "What happened to Maria as she got older?",
-      options: [
-        "She could play more with friends",
-        "She got tired easily and couldn't play",
-        "She became a doctor",
-        "Nothing changed"
-      ],
-      correctAnswer: 1,
-      explanation: "As Maria got older, she got tired easily and couldn't play with her friends because her heart was sick.",
-    ),
-    QuizQuestion(
-      question: "What problem did Maria have with breathing?",
-      options: [
-        "She could breathe normally",
-        "It was hard for her to breathe",
-        "She breathed too fast",
-        "She only had trouble at night"
-      ],
-      correctAnswer: 1,
-      explanation: "It was hard for Maria to breathe because rheumatic heart disease affected her heart.",
-    ),
-    QuizQuestion(
-      question: "What treatment might Maria need for the rest of her life?",
-      options: [
-        "Only exercise",
-        "Medication and possibly surgery",
-        "Home remedies",
-        "No treatment needed"
-      ],
-      correctAnswer: 1,
-      explanation: "Maria will need to take medication for the rest of her life and may need surgery because of her rheumatic heart disease.",
-    ),
-    QuizQuestion(
-      question: "Who should go to the clinic if they have a sore throat?",
-      options: [
-        "Only children",
-        "Only adults",
-        "Both children and adults",
-        "Nobody needs to go"
-      ],
-      correctAnswer: 2,
-      explanation: "If a child or adult has a sore throat, they must make sure to go to the clinic immediately.",
-    ),
-    QuizQuestion(
-      question: "What can happen if a sore throat is not treated properly?",
-      options: [
-        "It will go away by itself",
-        "It can lead to heart disease",
-        "Nothing serious",
-        "You get a cold"
-      ],
-      correctAnswer: 1,
-      explanation: "If your sore throat is not treated, it can lead to heart disease. That's why you must visit a health clinic.",
-    ),
-  ];
+  late final List<QuizQuestion> _questions;
+  late final List<int?> _userAnswers;
 
   @override
   void initState() {
     super.initState();
-    // ensure quiz results are stored for the correct user
     _db.setCurrentUser(widget.username);
+    _questions = _buildQuestionsForMiniQuiz(widget.quizNumber);
+    _userAnswers = List<int?>.filled(_questions.length, null);
+  }
+
+  List<QuizQuestion> _buildQuestionsForMiniQuiz(int quizNumber) {
+    // 3 short, child-friendly questions for each mini quiz
+    switch (quizNumber) {
+      case 1:
+        return [
+          QuizQuestion(
+            question: "If your throat hurts a lot, what should you do?",
+            options: [
+              "Keep playing outside",
+              "Tell an adult and go to the clinic",
+              "Drink only cold water",
+              "Ignore it"
+            ],
+            correctAnswer: 1,
+            explanation:
+                "When your throat hurts, you should always tell an adult and go to the clinic for proper medicine.",
+          ),
+          QuizQuestion(
+            question: "Why is a sore throat important?",
+            options: [
+              "It can lead to a sick heart if not treated",
+              "It is never serious",
+              "Only adults should worry",
+              "It always goes away alone"
+            ],
+            correctAnswer: 0,
+            explanation:
+                "A sore throat that is not treated can cause rheumatic fever and damage the heart.",
+          ),
+          QuizQuestion(
+            question: "Who can get a sore throat?",
+            options: [
+              "Only children",
+              "Only teachers",
+              "Both children and adults",
+              "No one"
+            ],
+            correctAnswer: 2,
+            explanation:
+                "Children and adults can both get sore throats, so everyone should go to the clinic if it hurts.",
+          ),
+        ];
+      case 2:
+        return [
+          QuizQuestion(
+            question: "Which helper gives the best medicine for a sore throat?",
+            options: [
+              "The clinic nurse or doctor",
+              "A friend at school",
+              "A neighbour without training",
+              "Watching TV"
+            ],
+            correctAnswer: 0,
+            explanation:
+                "Nurses and doctors at the clinic know which medicine is safe and correct.",
+          ),
+          QuizQuestion(
+            question: "What can happen if you stop medicine too early?",
+            options: [
+              "You become taller",
+              "The germs can come back and hurt your heart",
+              "Nothing happens",
+              "You never get sick again"
+            ],
+            correctAnswer: 1,
+            explanation:
+                "If you stop medicine early, the germs can come back and cause rheumatic fever or heart problems.",
+          ),
+          QuizQuestion(
+            question: "How long should you usually take medicine for sore throat?",
+            options: [
+              "Only 1 day",
+              "Until friends tell you to stop",
+              "For all 10 days as told",
+              "Only when you feel pain"
+            ],
+            correctAnswer: 2,
+            explanation:
+                "You must take the medicine for the full 10 days exactly as the clinic tells you.",
+          ),
+        ];
+      case 3:
+        return [
+          QuizQuestion(
+            question: "Which sign can show rheumatic fever?",
+            options: [
+              "Happy and running easily",
+              "Pain in knees and elbows",
+              "Only hungry",
+              "Hair growing fast"
+            ],
+            correctAnswer: 1,
+            explanation:
+                "Joint pain, like in knees and elbows, can be a sign of rheumatic fever after a sore throat.",
+          ),
+          QuizQuestion(
+            question: "How might Maria feel when her heart is sick?",
+            options: [
+              "Very strong all the time",
+              "Gets tired quickly when playing",
+              "Never needs rest",
+              "Always wants to run"
+            ],
+            correctAnswer: 1,
+            explanation:
+                "When the heart is weak, children can feel tired quickly and cannot play for long.",
+          ),
+          QuizQuestion(
+            question: "Who should you tell if you feel chest pain or can’t breathe well?",
+            options: [
+              "No one",
+              "Only your friend",
+              "An adult and clinic staff",
+              "Your pet"
+            ],
+            correctAnswer: 2,
+            explanation:
+                "Always tell a trusted adult and go to the clinic if you have chest pain or trouble breathing.",
+          ),
+        ];
+      case 4:
+      default:
+        return [
+          QuizQuestion(
+            question: "Why do we draw and learn about Maria’s story?",
+            options: [
+              "Only for fun pictures",
+              "To learn how to keep our heart safe",
+              "To skip school",
+              "To avoid going to the clinic"
+            ],
+            correctAnswer: 1,
+            explanation:
+                "Maria’s story helps children learn how to protect their hearts by visiting the clinic early.",
+          ),
+          QuizQuestion(
+            question: "What should you do if your friend has a very sore throat?",
+            options: [
+              "Tell them to play more",
+              "Say nothing",
+              "Tell a teacher or parent to take them to the clinic",
+              "Give them sweets"
+            ],
+            correctAnswer: 2,
+            explanation:
+                "You can help by telling an adult so your friend can go to the clinic and get medicine.",
+          ),
+          QuizQuestion(
+            question: "Which habit keeps your heart healthier?",
+            options: [
+              "Taking all medicines as told by the clinic",
+              "Sharing leftover tablets with friends",
+              "Stopping medicine when you feel okay",
+              "Using only home remedies"
+            ],
+            correctAnswer: 0,
+            explanation:
+                "Taking all medicines exactly as told by the clinic helps protect your heart.",
+          ),
+        ];
+    }
   }
 
   void _selectAnswer(int answer) {
@@ -193,14 +253,13 @@ class _QuizPageState extends State<QuizPage> {
   Future<void> _showFinalResults() async {
   final percentage = (_score / _questions.length * 100).round();
 
-  // 🚨 async gap
   await _db.saveQuizResult(
-    quizId: 'final',
+    quizId: widget.quizId,
     score: _score,
     totalQuestions: _questions.length,
   );
 
-  // 🔒 SAFE — ensure widget is still mounted after await
+  // ✅ Ensure the State is still mounted before using context
   if (!mounted) return;
 
   final screenW = MediaQuery.of(context).size.width;
@@ -218,7 +277,12 @@ class _QuizPageState extends State<QuizPage> {
             size: dialogIconSize,
           ),
           const SizedBox(width: 12),
-          const Expanded(child: Text('Quiz Complete!')),
+          Expanded(
+            child: Text(
+              'Mini Quiz ${widget.quizNumber} Complete!',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
       content: Column(
@@ -226,36 +290,36 @@ class _QuizPageState extends State<QuizPage> {
         children: [
           Text(
             'Your Score: $_score/${_questions.length}',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
             '$percentage%',
             style: TextStyle(
-              fontSize: 36,
+              fontSize: 32,
               fontWeight: FontWeight.bold,
               color: percentage >= 70 ? Colors.green : Colors.orange,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Text(
             percentage >= 90
-                ? 'Excellent! You really understand how to protect your heart! 🎉'
+                ? 'Super work! You are a heart hero! 🎉'
                 : percentage >= 70
-                    ? 'Great job! You learned a lot about heart health! 👍'
-                    : 'Good try! Remember to always go to the clinic for a sore throat! 💪',
+                    ? 'Great job! You are learning how to protect your heart! 👍'
+                    : 'Good try! Remember: always visit the clinic for a sore throat 💪',
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16),
           ),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () {
-            Navigator.pop(ctx);
-            Navigator.pop(context);
+            // ✅ Use ctx only; no use_build_context_synchronously warning
+            Navigator.of(ctx).pop(); // close dialog
+            Navigator.of(ctx).pop(); // go back to colouring screen
           },
-          child: const Text('Back to Dashboard'),
+          child: const Text('Back to colouring'),
         ),
       ],
     ),
@@ -268,7 +332,6 @@ class _QuizPageState extends State<QuizPage> {
     final question = _questions[_currentQuestionIndex];
     final progress = (_currentQuestionIndex + 1) / _questions.length;
 
-    // responsive sizing derived from screen width (keeps all names/logic unchanged)
     final screenW = MediaQuery.of(context).size.width;
     final isSmall = screenW < 420;
     final headlineSize = isSmall ? 18.0 : 20.0;
@@ -291,8 +354,12 @@ class _QuizPageState extends State<QuizPage> {
           ),
         ),
         title: Text(
-          'Heart Health Quiz',
-          style: TextStyle(fontSize: headlineSize, fontWeight: FontWeight.w800, color: Colors.black87),
+          'Mini Quiz ${widget.quizNumber}',
+          style: TextStyle(
+            fontSize: headlineSize,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
         ),
         centerTitle: true,
       ),
@@ -309,7 +376,10 @@ class _QuizPageState extends State<QuizPage> {
                     children: [
                       Text(
                         'Question ${_currentQuestionIndex + 1}/${_questions.length}',
-                        style: TextStyle(fontSize: isSmall ? 14 : 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: isSmall ? 14 : 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       Text(
                         'Score: $_score',
@@ -338,7 +408,10 @@ class _QuizPageState extends State<QuizPage> {
             // Question Card
             Expanded(
               child: SingleChildScrollView(
-                padding: EdgeInsets.symmetric(horizontal: screenW * 0.04, vertical: screenW * 0.03),
+                padding: EdgeInsets.symmetric(
+                  horizontal: screenW * 0.04,
+                  vertical: screenW * 0.03,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -422,14 +495,18 @@ class _QuizPageState extends State<QuizPage> {
                                 width: optionIconBase,
                                 height: optionIconBase,
                                 decoration: BoxDecoration(
-                                  color: isSelected ? Colors.deepPurple : Colors.grey.shade200,
+                                  color: isSelected
+                                      ? Colors.deepPurple
+                                      : Colors.grey.shade200,
                                   shape: BoxShape.circle,
                                 ),
                                 child: Center(
                                   child: Text(
                                     String.fromCharCode(65 + index),
                                     style: TextStyle(
-                                      color: isSelected ? Colors.white : Colors.black87,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : Colors.black87,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -447,8 +524,13 @@ class _QuizPageState extends State<QuizPage> {
                               ),
                               if (icon != null)
                                 Padding(
-                                  padding: EdgeInsets.only(left: screenW * 0.03),
-                                  child: Icon(icon, color: iconColor, size: resultIconSize),
+                                  padding:
+                                      EdgeInsets.only(left: screenW * 0.03),
+                                  child: Icon(
+                                    icon,
+                                    color: iconColor,
+                                    size: resultIconSize,
+                                  ),
                                 ),
                             ],
                           ),
@@ -456,7 +538,6 @@ class _QuizPageState extends State<QuizPage> {
                       );
                     }),
 
-                    // Explanation (shown after answer)
                     if (_showResult) ...[
                       SizedBox(height: screenW * 0.04),
                       Container(
@@ -469,7 +550,11 @@ class _QuizPageState extends State<QuizPage> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.lightbulb, color: Colors.orange, size: resultIconSize),
+                            Icon(
+                              Icons.lightbulb,
+                              color: Colors.orange,
+                              size: resultIconSize,
+                            ),
                             SizedBox(width: screenW * 0.03),
                             Expanded(
                               child: Text(
@@ -485,14 +570,13 @@ class _QuizPageState extends State<QuizPage> {
                       ),
                     ],
 
-                    // Add spacing at bottom for button
                     SizedBox(height: screenW * 0.08),
                   ],
                 ),
               ),
             ),
 
-            // Action Buttons - Removed white box background
+            // Buttons
             Padding(
               padding: EdgeInsets.all(screenW * 0.04),
               child: _showResult
@@ -502,7 +586,9 @@ class _QuizPageState extends State<QuizPage> {
                         onPressed: _nextQuestion,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.teal,
-                          padding: EdgeInsets.symmetric(vertical: isSmall ? 14 : 16),
+                          padding: EdgeInsets.symmetric(
+                            vertical: isSmall ? 14 : 16,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -526,7 +612,9 @@ class _QuizPageState extends State<QuizPage> {
                         onPressed: _submitAnswer,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.deepPurple,
-                          padding: EdgeInsets.symmetric(vertical: isSmall ? 14 : 16),
+                          padding: EdgeInsets.symmetric(
+                            vertical: isSmall ? 14 : 16,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),

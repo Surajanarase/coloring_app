@@ -722,4 +722,61 @@ class DbService {
       debugPrint('[DB] Database closed');
     }
   }
+    // ===================== QUIZ RESULTS =====================
+
+  Future<void> saveQuizResult({
+    required String quizId,
+    required int score,
+    required int totalQuestions,
+  }) async {
+    if (_currentUsername == null || _currentUsername!.isEmpty) return;
+
+    final database = await db;
+    await _ensureQuizTable(database);
+
+    final percent =
+        totalQuestions > 0 ? (score * 100.0 / totalQuestions) : 0.0;
+
+    await database.insert(
+      'quiz_results',
+      {
+        'username': _currentUsername,
+        'quiz_id': quizId,
+        'score': score,
+        'total_questions': totalQuestions,
+        'percent': percent,
+        'completed_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getQuizResultsForUser() async {
+    if (_currentUsername == null || _currentUsername!.isEmpty) return [];
+
+    final database = await db;
+    await _ensureQuizTable(database);
+
+    return database.query(
+      'quiz_results',
+      where: 'username = ?',
+      whereArgs: [_currentUsername],
+    );
+  }
+
+  Future<void> _ensureQuizTable(Database database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS quiz_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        quiz_id TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        total_questions INTEGER NOT NULL,
+        percent REAL NOT NULL,
+        completed_at INTEGER NOT NULL,
+        UNIQUE (username, quiz_id)
+      )
+    ''');
+  }
 }
+

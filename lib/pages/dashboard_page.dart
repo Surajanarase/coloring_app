@@ -12,6 +12,7 @@ import '../services/svg_service.dart';
 import '../services/path_service.dart';
 import 'colouring_page.dart';
 import 'quiz_page.dart';
+import 'mini_quiz_page.dart';
 import '../auth/login_screen.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -40,6 +41,13 @@ class _DashboardPageState extends State<DashboardPage> {
   static const double _progressGamma = 0.85;
   static const double _minVisibleProgress = 5.0;
   static const double _eps = 0.01;
+
+  // quiz tracking
+  final List<bool> _miniQuizCompleted = List<bool>.filled(4, false);
+  bool _finalQuizCompleted = false;
+  int _quizAveragePercent = 0;
+  bool _hasAnyQuizResults = false;
+  Map<String, int> _quizPercents = {};
 
   @override
   void initState() {
@@ -138,10 +146,61 @@ class _DashboardPageState extends State<DashboardPage> {
           '[Dashboard] Overall progress: $_overall% (raw: ${overallRaw.toStringAsFixed(2)}%)');
 
       _computeUnlockedStates();
+
+      // also load quiz results/flags & averages
+      await _loadQuizStatus();
     } catch (e, st) {
       debugPrint('[Dashboard] Error loading rows: $e\n$st');
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _loadQuizStatus() async {
+    try {
+      final results = await _db.getQuizResultsForUser();
+      if (!mounted) return;
+
+      final miniFlags = List<bool>.filled(4, false);
+      bool finalDone = false;
+      double totalPercent = 0.0;
+      int count = 0;
+      final quizPercents = <String, int>{};
+
+      for (final row in results) {
+        final id = (row['quiz_id'] as String?) ?? '';
+        final percentValue = (row['percent'] as num?)?.toDouble() ?? 0.0;
+        final percentInt = percentValue.round().clamp(0, 100);
+
+        if (id == 'final') {
+          finalDone = true;
+        } else if (id.startsWith('mini')) {
+          final idx = int.tryParse(id.substring(4));
+          if (idx != null && idx >= 1 && idx <= 4) {
+            miniFlags[idx - 1] = true;
+          }
+        }
+
+        quizPercents[id] = percentInt;
+        totalPercent += percentInt;
+        count++;
+      }
+
+      setState(() {
+        for (int i = 0; i < 4; i++) {
+          _miniQuizCompleted[i] = miniFlags[i];
+        }
+        _finalQuizCompleted = finalDone;
+        _hasAnyQuizResults = count > 0;
+        _quizAveragePercent =
+            count > 0 ? (totalPercent / count).round().clamp(0, 100) : 0;
+        _quizPercents = quizPercents;
+      });
+
+      debugPrint(
+          '[Dashboard] Quiz status: mini=$_miniQuizCompleted, final=$_finalQuizCompleted, avg=$_quizAveragePercent ($_hasAnyQuizResults)');
+    } catch (e, st) {
+      debugPrint('[Dashboard] _loadQuizStatus error: $e\n$st');
+    }
   }
 
   void _checkAndShowQuizIfAvailable() {
@@ -149,6 +208,9 @@ class _DashboardPageState extends State<DashboardPage> {
       setState(() => _quizAvailable = false);
       return;
     }
+
+    // First, check mini quizzes at milestones (after images 3,6,9,12)
+    _checkMiniQuizzesIfAvailable();
 
     final lastImage = _rows.last;
     final totalArea = (lastImage['total_area'] as num?)?.toDouble() ?? 0.0;
@@ -164,18 +226,121 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     final wasAvailable = _quizAvailable;
-    final isNowAvailable = displayPercent >= _quizUnlockThreshold;
+    final isNowAvailable =
+        displayPercent >= _quizUnlockThreshold && !_finalQuizCompleted;
 
     setState(() {
       _quizAvailable = isNowAvailable;
     });
 
-    debugPrint('[Dashboard] Quiz available: $_quizAvailable (last image: $displayPercent%)');
+    debugPrint(
+        '[Dashboard] Quiz available: $_quizAvailable (last image: $displayPercent%, finalDone=$_finalQuizCompleted)');
 
     if (isNowAvailable && !wasAvailable && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showQuizUnlockedDialog();
       });
+    }
+  }
+
+  void _checkMiniQuizzesIfAvailable() {
+    if (_rows.isEmpty) return;
+
+    // After images 3, 6, 9, 12 => indexes 2, 5, 8, 11
+    final milestones = <int>[2, 5, 8, 11];
+
+    for (int i = 0; i < milestones.length; i++) {
+      if (_miniQuizCompleted[i]) continue;
+
+      final idx = milestones[i];
+      if (idx >= _rows.length) continue;
+
+      final row = _rows[idx];
+      final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
+      final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+      final storedPercent =
+          (row['display_percent'] as num?)?.toDouble() ?? 0.0;
+
+      int displayPercent;
+      if (storedPercent > 0 && storedPercent <= 100) {
+        displayPercent = storedPercent.round();
+      } else {
+        final rawPercent =
+            totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
+        displayPercent =
+            _boostProgressPercent(rawPercent, coloredArea, totalArea);
+      }
+
+      debugPrint(
+          '[Dashboard] Mini quiz candidate $i at image index $idx: progress=$displayPercent%, completed=${_miniQuizCompleted[i]}');
+
+      if (displayPercent >= _quizUnlockThreshold && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showMiniQuizDialog(i + 1);
+        });
+        break; // only one mini-quiz prompt at a time
+      }
+    }
+  }
+
+  Future<void> _showMiniQuizDialog(int quizNumber) async {
+    if (!mounted) return;
+
+    final shouldTake = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.quiz, color: Colors.deepPurple, size: 30),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                'Mini Quiz $quizNumber unlocked!',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Great colouring! Would you like to answer a few short questions about keeping your heart healthy?',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Maybe later'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Start mini quiz',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldTake == true && mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MiniQuizPage(
+            username: widget.username,
+            quizId: 'mini$quizNumber',
+            quizNumber: quizNumber,
+          ),
+        ),
+      );
+
+      await _loadRows();
+      _checkAndShowQuizIfAvailable();
     }
   }
 
@@ -247,7 +412,240 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
       );
       await _loadRows();
+      _checkAndShowQuizIfAvailable();
     }
+  }
+
+  Future<void> _showQuizPerformanceDialog() async {
+    if (!_hasAnyQuizResults) return;
+
+    final miniTitles = [
+      'Mini Quiz 1 (after 3 images)',
+      'Mini Quiz 2 (after 6 images)',
+      'Mini Quiz 3 (after 9 images)',
+      'Mini Quiz 4 (after 12 images)',
+    ];
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.insights, color: Colors.deepOrange, size: 28),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Quiz Update',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFE8F5E9), Color(0xFFB9F6CA)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Overall score',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1B5E20),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: _quizAveragePercent / 100.0,
+                          minHeight: 8,
+                          backgroundColor: Colors.white.withValues(alpha: 0.5),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF00C853),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Average score: $_quizAveragePercent%',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF1B5E20),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Mini quizzes',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...List.generate(4, (i) {
+                  final quizId = 'mini${i + 1}';
+                  final percent = _quizPercents[quizId];
+                  final taken = percent != null;
+                  final label = miniTitles[i];
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                label,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                taken ? 'Last score: $percent%' : 'Not taken yet',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: taken ? Colors.green.shade700 : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            Navigator.pop(dialogCtx);
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => MiniQuizPage(
+                                  username: widget.username,
+                                  quizId: quizId,
+                                  quizNumber: i + 1,
+                                ),
+                              ),
+                            );
+                            await _loadRows();
+                            _checkAndShowQuizIfAvailable();
+                          },
+                          child: Text(
+                            taken ? 'Retake' : 'Take quiz',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 8),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Final quiz',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Final heart health quiz',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _quizPercents.containsKey('final')
+                                  ? 'Last score: ${_quizPercents['final']}%'
+                                  : 'Not taken yet',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _quizPercents.containsKey('final')
+                                    ? Colors.green.shade700
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () async {
+                          Navigator.pop(dialogCtx);
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => QuizPage(username: widget.username),
+                            ),
+                          );
+                          await _loadRows();
+                          _checkAndShowQuizIfAvailable();
+                        },
+                        child: Text(
+                          _quizPercents.containsKey('final') ? 'Retake' : 'Take quiz',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   String _getMotivationalMessage() {
@@ -951,7 +1349,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
 
-                    // Quiz Button (if available)
+                    // Quiz Button (if available) OR quiz update button
                     if (_quizAvailable)
                       InkWell(
                         borderRadius: BorderRadius.circular(28),
@@ -991,6 +1389,49 @@ class _DashboardPageState extends State<DashboardPage> {
                               const SizedBox(width: 8),
                               Text(
                                 'Take Quiz',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isSmallScreen ? 13 : 15,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_forward, color: Colors.white, size: 16),
+                            ],
+                          ),
+                        ),
+                      )
+                    else if (_hasAnyQuizResults)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(28),
+                        onTap: _showQuizPerformanceDialog,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(28),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x44FF6B6B),
+                                blurRadius: 8,
+                                offset: Offset(0, 3),
+                              )
+                            ],
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isSmallScreen ? 14 : 16,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.bar_chart, color: Colors.white, size: isSmallScreen ? 16 : 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Quiz Update',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,
