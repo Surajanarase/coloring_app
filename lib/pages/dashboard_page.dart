@@ -44,6 +44,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // quiz tracking
   final List<bool> _miniQuizCompleted = List<bool>.filled(4, false);
+  final List<bool> _miniQuizPromptShown = List<bool>.filled(4, false);
   bool _finalQuizCompleted = false;
   int _quizAveragePercent = 0;
   bool _hasAnyQuizResults = false;
@@ -250,7 +251,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final milestones = <int>[2, 5, 8, 11];
 
     for (int i = 0; i < milestones.length; i++) {
-      if (_miniQuizCompleted[i]) continue;
+      if (_miniQuizCompleted[i] || _miniQuizPromptShown[i]) continue;
 
       final idx = milestones[i];
       if (idx >= _rows.length) continue;
@@ -275,6 +276,7 @@ class _DashboardPageState extends State<DashboardPage> {
           '[Dashboard] Mini quiz candidate $i at image index $idx: progress=$displayPercent%, completed=${_miniQuizCompleted[i]}');
 
       if (displayPercent >= _quizUnlockThreshold && mounted) {
+        _miniQuizPromptShown[i] = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _showMiniQuizDialog(i + 1);
         });
@@ -284,73 +286,72 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _showMiniQuizDialog(int quizNumber) async {
-  if (!mounted) return;
+    if (!mounted) return;
 
-  final shouldTake = await showDialog<bool>(
-    context: context,
-    barrierDismissible: true,
-    builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.quiz, color: Colors.deepPurple, size: 30),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              'Mini Quiz $quizNumber unlocked!',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+    final shouldTake = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.quiz, color: Colors.deepPurple, size: 30),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                'Mini Quiz $quizNumber unlocked!',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        content: const Text(
+          'Great colouring! Would you like to answer a few short questions about keeping your heart healthy?',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Maybe later'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Start mini quiz',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
         ],
       ),
-      content: const Text(
-        'Great colouring! Would you like to answer a few short questions about keeping your heart healthy?',
-        textAlign: TextAlign.center,
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Maybe later'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text(
-            'Start mini quiz',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  if (shouldTake == true && mounted) {
-    // Mark this mini quiz as completed so that next triggers use the next quiz number
-    setState(() {
-      if (quizNumber >= 1 && quizNumber <= _miniQuizCompleted.length) {
-        _miniQuizCompleted[quizNumber - 1] = true;
-      }
-    });
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => MiniQuizPage(
-          username: widget.username,
-          quizId: 'mini$quizNumber',
-          quizNumber: quizNumber,
-        ),
-      ),
     );
 
-    await _loadRows();
-    _checkAndShowQuizIfAvailable();
-  }
-}
+    if (shouldTake == true && mounted) {
+      // Mark this mini quiz as completed so that next triggers use the next quiz number
+      setState(() {
+        if (quizNumber >= 1 && quizNumber <= _miniQuizCompleted.length) {
+          _miniQuizCompleted[quizNumber - 1] = true;
+        }
+      });
 
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MiniQuizPage(
+            username: widget.username,
+            quizId: 'mini$quizNumber',
+            quizNumber: quizNumber,
+          ),
+        ),
+      );
+
+      await _loadRows();
+      _checkAndShowQuizIfAvailable();
+    }
+  }
 
   Future<void> _showQuizUnlockedDialog() async {
     final shouldTakeQuiz = await showDialog<bool>(
@@ -473,261 +474,144 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _showQuizPerformanceDialog() async {
-  // <-- removed: if (!_hasAnyQuizResults) return;
+    // <-- removed: if (!_hasAnyQuizResults) return;
 
-  final miniTitles = [
-    'Quiz 1',
-    'Quiz 2',
-    'Quiz 3',
-    'Quiz 4',
-  ];
+    final miniTitles = [
+      'Quiz 1',
+      'Quiz 2',
+      'Quiz 3',
+      'Quiz 4',
+    ];
 
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: true,
-    builder: (dialogCtx) {
-      return AlertDialog(
-        // less insetPadding => dialog becomes wider on both sides
-        insetPadding: const EdgeInsets.symmetric(horizontal: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.insights, color: Colors.deepOrange, size: 28),
-            SizedBox(width: 8),
-            Text(
-              'Quiz Update',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          // less insetPadding => dialog becomes wider on both sides
+          insetPadding: const EdgeInsets.symmetric(horizontal: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFE8F5E9), Color(0xFFB9F6CA)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Overall score',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1B5E20),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: _quizAveragePercent / 100.0,
-                        minHeight: 8,
-                        backgroundColor: Colors.white.withValues(alpha: 0.5),
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFF00C853),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Average score: $_quizAveragePercent%',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF1B5E20),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+            children: const [
+              Icon(Icons.insights, color: Colors.deepOrange, size: 28),
+              SizedBox(width: 8),
+              Text(
+                'Quiz Update',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Mini Quizzes',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              ...List.generate(4, (i) {
-                final quizId = 'mini${i + 1}';
-                final percent = _quizPercents[quizId];
-                final taken = percent != null;
-                final unlocked = taken || _isMiniQuizUnlocked(i + 1);
-                final label = miniTitles[i];
-
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFE8F5E9), Color(0xFFB9F6CA)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                label,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              taken ? 'Last score: $percent%' : 'Not taken yet',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: taken
-                                    ? Colors.green.shade700
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
+                      const Text(
+                        'Overall score',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1B5E20),
                         ),
                       ),
-                      TextButton(
-                        onPressed: unlocked
-                            ? () async {
-                                final proceed = await showDialog<bool>(
-                                      context: dialogCtx,
-                                      barrierDismissible: true,
-                                      builder: (warnCtx) => AlertDialog(
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(16),
-                                        ),
-                                        title: const Text('Please note'),
-                                        content: const Text(
-                                          'Please color the remaining images to reach this quiz.',
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(warnCtx, false),
-                                            child: const Text('Cancel'),
-                                          ),
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(warnCtx, true),
-                                            child: const Text('Continue'),
-                                          ),
-                                        ],
-                                      ),
-                                    ) ??
-                                    false;
-
-                                if (!proceed) return;
-                                if (!dialogCtx.mounted) return;
-                                Navigator.pop(dialogCtx);
-                                if (!mounted) return;
-
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => MiniQuizPage(
-                                      username: widget.username,
-                                      quizId: quizId,
-                                      quizNumber: i + 1,
-                                    ),
-                                  ),
-                                );
-                                await _loadRows();
-                                _checkAndShowQuizIfAvailable();
-                              }
-                            : null,
-                        child: Text(
-                          taken
-                              ? 'Retake'
-                              : (unlocked ? 'Take quiz' : 'Locked'),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: _quizAveragePercent / 100.0,
+                          minHeight: 8,
+                          backgroundColor: Colors.white.withValues(alpha: 0.5),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF00C853),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Average score: $_quizAveragePercent%',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF1B5E20),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
-                );
-              }),
-              const SizedBox(height: 8),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Final Quiz',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+                ),
+                const SizedBox(height: 16),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Mini Quizzes',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              'Rheumatic-Health Quiz',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _quizPercents.containsKey('final')
-                                ? 'Last score: ${_quizPercents['final']}%'
-                                : 'Not taken yet',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _quizPercents.containsKey('final')
-                                  ? Colors.green.shade700
-                                  : Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Builder(
-                      builder: (_) {
-                        final finalTaken = _quizPercents.containsKey('final');
-                        final finalUnlocked =
-                            finalTaken || _isFinalQuizUnlocked();
+                const SizedBox(height: 8),
+                ...List.generate(4, (i) {
+                  final quizId = 'mini${i + 1}';
+                  final percent = _quizPercents[quizId];
+                  final taken = percent != null;
+                  final unlocked = taken || _isMiniQuizUnlocked(i + 1);
+                  final label = miniTitles[i];
 
-                        return TextButton(
-                          onPressed: finalUnlocked
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                taken ? 'Last score: $percent%' : 'Not taken yet',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: taken
+                                      ? Colors.green.shade700
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: unlocked
                               ? () async {
                                   final proceed = await showDialog<bool>(
                                         context: dialogCtx,
@@ -744,14 +628,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                           actions: [
                                             TextButton(
                                               onPressed: () =>
-                                                  Navigator.pop(
-                                                      warnCtx, false),
+                                                  Navigator.pop(warnCtx, false),
                                               child: const Text('Cancel'),
                                             ),
                                             TextButton(
                                               onPressed: () =>
-                                                  Navigator.pop(
-                                                      warnCtx, true),
+                                                  Navigator.pop(warnCtx, true),
                                               child: const Text('Continue'),
                                             ),
                                           ],
@@ -766,8 +648,11 @@ class _DashboardPageState extends State<DashboardPage> {
 
                                   await Navigator.of(context).push(
                                     MaterialPageRoute(
-                                      builder: (_) =>
-                                          QuizPage(username: widget.username),
+                                      builder: (_) => MiniQuizPage(
+                                        username: widget.username,
+                                        quizId: quizId,
+                                        quizNumber: i + 1,
+                                      ),
                                     ),
                                   );
                                   await _loadRows();
@@ -775,32 +660,147 @@ class _DashboardPageState extends State<DashboardPage> {
                                 }
                               : null,
                           child: Text(
-                            finalTaken
+                            taken
                                 ? 'Retake'
-                                : (finalUnlocked ? 'Take quiz' : 'Locked'),
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600),
+                                : (unlocked ? 'Take quiz' : 'Locked'),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
-                  ],
+                  );
+                }),
+                const SizedBox(height: 8),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Final Quiz',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Close'),
-          ),
-        ],
-      );
-    },
-  );
-}
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Rheumatic-Health Quiz',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _quizPercents.containsKey('final')
+                                  ? 'Last score: ${_quizPercents['final']}%'
+                                  : 'Not taken yet',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _quizPercents.containsKey('final')
+                                    ? Colors.green.shade700
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Builder(
+                        builder: (_) {
+                          final finalTaken = _quizPercents.containsKey('final');
+                          final finalUnlocked =
+                              finalTaken || _isFinalQuizUnlocked();
 
+                          return TextButton(
+                            onPressed: finalUnlocked
+                                ? () async {
+                                    final proceed = await showDialog<bool>(
+                                          context: dialogCtx,
+                                          barrierDismissible: true,
+                                          builder: (warnCtx) => AlertDialog(
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                            ),
+                                            title: const Text('Please note'),
+                                            content: const Text(
+                                              'Please color the remaining images to reach this quiz.',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(
+                                                        warnCtx, false),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(
+                                                        warnCtx, true),
+                                                child: const Text('Continue'),
+                                              ),
+                                            ],
+                                          ),
+                                        ) ??
+                                        false;
+
+                                    if (!proceed) return;
+                                    if (!dialogCtx.mounted) return;
+                                    Navigator.pop(dialogCtx);
+                                    if (!mounted) return;
+
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            QuizPage(username: widget.username),
+                                      ),
+                                    );
+                                    await _loadRows();
+                                    _checkAndShowQuizIfAvailable();
+                                  }
+                                : null,
+                            child: Text(
+                              finalTaken
+                                  ? 'Retake'
+                                  : (finalUnlocked ? 'Take quiz' : 'Locked'),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   String _getMotivationalMessage() {
     if (_rows.isEmpty) return 'Start your coloring journey! 🎨';
@@ -1461,94 +1461,93 @@ class _DashboardPageState extends State<DashboardPage> {
                 const SizedBox(height: 14),
 
                 // Buttons Row
-Wrap(
-  alignment: WrapAlignment.center,
-  spacing: 10,
-  runSpacing: 10,
-  children: [
-    // Learn More Button
-    InkWell(
-      borderRadius: BorderRadius.circular(28),
-      onTap: _openRheumaticInfo,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(28),
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: isSmallScreen ? 14 : 16,
-          vertical: 10,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.menu_book, color: Colors.white, size: isSmallScreen ? 16 : 18),
-            const SizedBox(width: 8),
-            Text(
-              'Learn More',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: isSmallScreen ? 13 : 15,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Icon(Icons.chevron_right, color: Colors.white, size: isSmallScreen ? 16 : 18),
-          ],
-        ),
-      ),
-    ),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    // Learn More Button
+                    InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: _openRheumaticInfo,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF58D3C7), Color(0xFF4BB0D6)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 14 : 16,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.menu_book, color: Colors.white, size: isSmallScreen ? 16 : 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Learn More',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: isSmallScreen ? 13 : 15,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.chevron_right, color: Colors.white, size: isSmallScreen ? 16 : 18),
+                          ],
+                        ),
+                      ),
+                    ),
 
-    // Quiz Update button (always visible)
-    InkWell(
-      borderRadius: BorderRadius.circular(28),
-      onTap: _showQuizPerformanceDialog,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(28),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x44FF6B6B),
-              blurRadius: 8,
-              offset: Offset(0, 3),
-            )
-          ],
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: isSmallScreen ? 14 : 16,
-          vertical: 10,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.bar_chart, color: Colors.white, size: isSmallScreen ? 16 : 18),
-            const SizedBox(width: 8),
-            Text(
-              'Quiz Update',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: isSmallScreen ? 13 : 15,
-              ),
-            ),
-            const SizedBox(width: 4),
-            const Icon(Icons.arrow_forward, color: Colors.white, size: 16),
-          ],
-        ),
-      ),
-    ),
-  ],
-),
-
+                    // Quiz Update button (always visible)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: _showQuizPerformanceDialog,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(28),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x44FF6B6B),
+                              blurRadius: 8,
+                              offset: Offset(0, 3),
+                            )
+                          ],
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 14 : 16,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.bar_chart, color: Colors.white, size: isSmallScreen ? 16 : 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Quiz Update',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: isSmallScreen ? 13 : 15,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.arrow_forward, color: Colors.white, size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
