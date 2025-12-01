@@ -35,8 +35,8 @@ class _DashboardPageState extends State<DashboardPage> {
   String _displayName = '';
 
   List<bool> _unlocked = [];
-  static const int _unlockThreshold = 90;
-  static const int _quizUnlockThreshold = 80;
+  static const int _unlockThreshold = 60;
+  static const int _quizUnlockThreshold = 60;
 
   static const double _progressGamma = 0.85;
   static const double _minVisibleProgress = 5.0;
@@ -69,7 +69,8 @@ class _DashboardPageState extends State<DashboardPage> {
       debugPrint('[Dashboard] Debug dump failed: $e');
     }
 
-    _checkAndShowQuizIfAvailable();
+    // On app start: compute quiz availability but DO NOT show any quiz popups.
+    _checkAndShowQuizIfAvailable(showDialogs: false);
 
     debugPrint('[Dashboard] ============ INITIALIZATION COMPLETE ============');
   }
@@ -204,14 +205,14 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  void _checkAndShowQuizIfAvailable() {
+  void _checkAndShowQuizIfAvailable({bool showDialogs = true}) {
     if (_rows.isEmpty) {
       setState(() => _quizAvailable = false);
       return;
     }
 
     // First, check mini quizzes at milestones (after images 3,6,9,12)
-    _checkMiniQuizzesIfAvailable();
+    _checkMiniQuizzesIfAvailable(showDialogs);
 
     final lastImage = _rows.last;
     final totalArea = (lastImage['total_area'] as num?)?.toDouble() ?? 0.0;
@@ -237,20 +238,20 @@ class _DashboardPageState extends State<DashboardPage> {
     debugPrint(
         '[Dashboard] Quiz available: $_quizAvailable (last image: $displayPercent%, finalDone=$_finalQuizCompleted)');
 
-    if (isNowAvailable && !wasAvailable && mounted) {
+    if (showDialogs && isNowAvailable && !wasAvailable && mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showQuizUnlockedDialog();
       });
     }
   }
 
-  void _checkMiniQuizzesIfAvailable() {
-    if (_rows.isEmpty) return;
+  void _checkMiniQuizzesIfAvailable(bool showDialogs) {
+    if (!showDialogs || _rows.isEmpty) return;
 
     // After images 3, 6, 9, 12 => indexes 2, 5, 8, 11
     final milestones = <int>[2, 5, 8, 11];
 
-    for (int i = 0; i < milestones.length; i++) {
+    for (int i = milestones.length - 1; i >= 0; i--) {
       if (_miniQuizCompleted[i] || _miniQuizPromptShown[i]) continue;
 
       final idx = milestones[i];
@@ -931,40 +932,46 @@ class _DashboardPageState extends State<DashboardPage> {
     return Colors.green;
   }
 
-  int _boostProgressPercent(double rawPercent, double coloredAreaSum, double totalAreaSum) {
-    if (totalAreaSum > 0 && (coloredAreaSum + _eps >= totalAreaSum)) {
-      return 100;
-    }
-
-    if (rawPercent >= 99.0) {
-      return 100;
-    }
-
-    if (rawPercent <= 0.0) return 0;
-
-    final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
-    double boosted = math.pow(normalized, _progressGamma).toDouble() * 100.0;
-
-    if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
-      boosted = _minVisibleProgress;
-    }
-
-    if (rawPercent >= 30.0 && rawPercent < 95.0) {
-      final midRangeBoost = math.pow(normalized, _progressGamma * 0.95).toDouble() * 100.0;
-      final blendFactor = 0.15;
-      boosted = boosted * (1 - blendFactor) + midRangeBoost * blendFactor;
-    }
-
-    if (boosted >= 99.0 && rawPercent < 97.0) {
-      boosted = 98.0;
-    }
-
-    if (boosted > 98.0 && rawPercent < 98.0) {
-      boosted = 98.0;
-    }
-
-    return boosted.round().clamp(0, 99);
+   int _boostProgressPercent(double rawPercent, double coloredAreaSum, double totalAreaSum) {
+  // ✅ NEW: 60% area or more = treat as fully complete (was 50%)
+  if (totalAreaSum > 0 && coloredAreaSum >= 0.6 * totalAreaSum) {
+    return 100;
   }
+
+  // existing near-100% safety
+  if (totalAreaSum > 0 && (coloredAreaSum + _eps >= totalAreaSum)) {
+    return 100;
+  }
+
+  if (rawPercent >= 99.0) {
+    return 100;
+  }
+
+  if (rawPercent <= 0.0) return 0;
+
+  final normalized = (rawPercent / 100.0).clamp(0.0, 1.0);
+  double boosted = math.pow(normalized, _progressGamma).toDouble() * 100.0;
+
+  if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
+    boosted = _minVisibleProgress;
+  }
+
+  if (rawPercent >= 30.0 && rawPercent < 95.0) {
+    final midRangeBoost = math.pow(normalized, _progressGamma * 0.95).toDouble() * 100.0;
+    final blendFactor = 0.15;
+    boosted = boosted * (1 - blendFactor) + midRangeBoost * blendFactor;
+  }
+
+  if (boosted >= 99.0 && rawPercent < 97.0) {
+    boosted = 98.0;
+  }
+
+  if (boosted > 98.0 && rawPercent < 98.0) {
+    boosted = 98.0;
+  }
+
+  return boosted.round().clamp(0, 99);
+}
 
   void _computeUnlockedStates() {
     _unlocked = List<bool>.filled(_rows.length, false);
@@ -1689,6 +1696,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final dot = name.lastIndexOf('.');
     return dot >= 0 ? name.substring(0, dot) : name;
   }
+  
 
   int? _firstNumberInString(String s) {
     final match = RegExp(r'\d+').firstMatch(s);

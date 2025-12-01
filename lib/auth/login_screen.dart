@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../services/db_service.dart';
 import '../pages/dashboard_page.dart';
 
-
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -46,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _submit() async {
     // First validate the form to show all field errors
     final isFormValid = _formKey.currentState!.validate();
-    
+
     // Check gender separately for register mode
     bool isGenderValid = true;
     if (_isRegisterMode && _gender == null) {
@@ -55,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       setState(() => _showGenderError = false);
     }
-    
+
     // If either form or gender is invalid, return early
     if (!isFormValid || !isGenderValid) return;
 
@@ -78,7 +77,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (result == 'exists') {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('❌ Username already exists. Pick another.')),
+            const SnackBar(
+                content: Text('❌ Username already exists. Pick another.')),
           );
           return;
         } else if (result != 'ok') {
@@ -102,7 +102,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (!valid) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('❌ Invalid username or password')),
+            const SnackBar(
+                content: Text('❌ Invalid username or password')),
           );
           return;
         }
@@ -132,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _gender = null;
     _showGenderError = false;
     FocusScope.of(context).unfocus();
-    
+
     setState(() {
       _isRegisterMode = !_isRegisterMode;
     });
@@ -236,7 +237,7 @@ class _LoginScreenState extends State<LoginScreen> {
       builder: (context, constraints) {
         final logoSize = MediaQuery.of(context).size.width * 0.35;
         final clampedLogoSize = logoSize.clamp(100.0, 160.0);
-        
+
         return Column(
           children: [
             Image.asset(
@@ -246,7 +247,8 @@ class _LoginScreenState extends State<LoginScreen> {
               errorBuilder: (context, error, stackTrace) => Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.favorite, color: Colors.red, size: clampedLogoSize * 0.25),
+                  Icon(Icons.favorite,
+                      color: Colors.red, size: clampedLogoSize * 0.25),
                   SizedBox(width: clampedLogoSize * 0.04),
                   Flexible(
                     child: Text(
@@ -262,7 +264,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               ),
             ),
-            SizedBox(height: MediaQuery.of(context).size.height * 0.015),
+            SizedBox(
+                height: MediaQuery.of(context).size.height * 0.015),
           ],
         );
       },
@@ -275,10 +278,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final screenHeight = mediaQuery.size.height;
     final screenWidth = mediaQuery.size.width;
     final safePadding = mediaQuery.padding;
-    
+
     final horizontalPadding = screenWidth * 0.06;
     final verticalPadding = screenHeight * 0.015;
-    
+
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
@@ -305,7 +308,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
                     maxWidth: 500,
-                    minHeight: screenHeight - safePadding.top - safePadding.bottom - (verticalPadding * 2),
+                    minHeight: screenHeight -
+                        safePadding.top -
+                        safePadding.bottom -
+                        (verticalPadding * 2),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -316,7 +322,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           horizontal: screenWidth * 0.045,
                           vertical: screenHeight * 0.022,
                         ),
-                        margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.015),
+                        margin: EdgeInsets.symmetric(
+                            horizontal: screenWidth * 0.015),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [
@@ -341,9 +348,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                _isRegisterMode ? 'Create account' : 'Welcome back',
+                                _isRegisterMode
+                                    ? 'Create account'
+                                    : 'Welcome back',
                                 style: TextStyle(
-                                  fontSize: (screenWidth * 0.052).clamp(19.0, 25.0),
+                                  fontSize: (screenWidth * 0.052)
+                                      .clamp(19.0, 25.0),
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.3,
                                 ),
@@ -355,7 +365,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                     : 'Use username and password to sign in',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: (screenWidth * 0.034).clamp(12.0, 15.0),
+                                  fontSize: (screenWidth * 0.034)
+                                      .clamp(12.0, 15.0),
                                   color: Colors.black87,
                                 ),
                               ),
@@ -367,29 +378,46 @@ class _LoginScreenState extends State<LoginScreen> {
                                   label: 'Full name',
                                   icon: Icons.person,
                                   validator: (v) {
-                                    if (v == null || v.trim().isEmpty) return 'Enter full name';
-                                    if (v.trim().length < 3) return 'At least 3 characters';
+                                    if (v == null ||
+                                        v.trim().isEmpty) {
+                                      return 'Enter full name';
+                                    }
+                                    if (v.trim().length < 3) {
+                                      return 'At least 3 characters';
+                                    }
                                     return null;
                                   },
-                                  onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
+                                  onFieldSubmitted: (_) =>
+                                      _usernameFocus.requestFocus(),
                                 ),
-                                SizedBox(height: screenHeight * 0.012),
+                                SizedBox(
+                                    height: screenHeight * 0.012),
                                 _buildTextField(
                                   controller: _ageCtrl,
                                   label: 'Age',
                                   icon: Icons.cake,
-                                  keyboardType: TextInputType.number,
+                                  keyboardType:
+                                      TextInputType.number,
                                   validator: (v) {
-                                    if (v == null || v.trim().isEmpty) return 'Enter age';
-                                    final n = int.tryParse(v.trim());
-                                    if (n == null || n <= 0) return 'Enter a valid age';
+                                    if (v == null ||
+                                        v.trim().isEmpty) {
+                                      return 'Enter age';
+                                    }
+                                    final n =
+                                        int.tryParse(v.trim());
+                                    if (n == null || n <= 0) {
+                                      return 'Enter a valid age';
+                                    }
                                     return null;
                                   },
-                                  onFieldSubmitted: (_) => _usernameFocus.requestFocus(),
+                                  onFieldSubmitted: (_) =>
+                                      _usernameFocus.requestFocus(),
                                 ),
-                                SizedBox(height: screenHeight * 0.012),
+                                SizedBox(
+                                    height: screenHeight * 0.012),
                                 _buildGenderSelector(),
-                                SizedBox(height: screenHeight * 0.012),
+                                SizedBox(
+                                    height: screenHeight * 0.012),
                               ],
 
                               _buildTextField(
@@ -397,13 +425,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                 focusNode: _usernameFocus,
                                 label: 'Username',
                                 icon: Icons.person_outline,
-                                autofillHints: [AutofillHints.username],
+                                autofillHints: const [
+                                  AutofillHints.username
+                                ],
                                 validator: (v) {
-                                  if (v == null || v.trim().isEmpty) return 'Enter username';
-                                  if (v.trim().length < 3) return 'At least 3 characters';
+                                  if (v == null ||
+                                      v.trim().isEmpty) {
+                                    return 'Enter username';
+                                  }
+                                  if (v.trim().length < 3) {
+                                    return 'At least 3 characters';
+                                  }
                                   return null;
                                 },
-                                onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
+                                onFieldSubmitted: (_) =>
+                                    _passwordFocus.requestFocus(),
                               ),
                               SizedBox(height: screenHeight * 0.012),
 
@@ -413,18 +449,29 @@ class _LoginScreenState extends State<LoginScreen> {
                                 label: 'Password',
                                 icon: Icons.lock_outline,
                                 obscureText: _obscure,
-                                autofillHints: [AutofillHints.password],
+                                autofillHints: const [
+                                  AutofillHints.password
+                                ],
                                 suffixIcon: IconButton(
-                                  tooltip: _obscure ? 'Show password' : 'Hide password',
+                                  tooltip: _obscure
+                                      ? 'Show password'
+                                      : 'Hide password',
                                   icon: Icon(
-                                    _obscure ? Icons.visibility_off : Icons.visibility,
+                                    _obscure
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
                                     size: 20,
                                   ),
-                                  onPressed: () => setState(() => _obscure = !_obscure),
+                                  onPressed: () =>
+                                      setState(() => _obscure = !_obscure),
                                 ),
                                 validator: (v) {
-                                  if (v == null || v.isEmpty) return 'Enter password';
-                                  if (v.length < 4) return 'At least 4 characters';
+                                  if (v == null || v.isEmpty) {
+                                    return 'Enter password';
+                                  }
+                                  if (v.length < 4) {
+                                    return 'At least 4 characters';
+                                  }
                                   return null;
                                 },
                                 onFieldSubmitted: (_) {
@@ -436,48 +483,81 @@ class _LoginScreenState extends State<LoginScreen> {
 
                               SizedBox(
                                 width: double.infinity,
-                                height: (screenHeight * 0.058).clamp(46.0, 54.0),
+                                height:
+                                    (screenHeight * 0.058)
+                                        .clamp(46.0, 54.0),
                                 child: ElevatedButton(
-                                  onPressed: _loading ? null : _submit,
+                                  onPressed:
+                                      _loading ? null : _submit,
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.transparent,
-                                    shadowColor: const Color.fromRGBO(33, 150, 243, 0.3),
+                                    backgroundColor:
+                                        Colors.transparent,
+                                    shadowColor:
+                                        const Color.fromRGBO(
+                                            33, 150, 243, 0.3),
                                     padding: EdgeInsets.zero,
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                              10),
                                     ),
                                     elevation: 4,
                                   ),
                                   child: Ink(
                                     decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
+                                      gradient:
+                                          const LinearGradient(
                                         colors: [
-                                          Color.fromRGBO(33, 150, 243, 0.85),
-                                          Color.fromRGBO(63, 81, 181, 0.85),
+                                          Color.fromRGBO(
+                                              33, 150, 243, 0.85),
+                                          Color.fromRGBO(
+                                              63, 81, 181, 0.85),
                                         ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
+                                        begin:
+                                            Alignment.topLeft,
+                                        end: Alignment
+                                            .bottomRight,
                                       ),
-                                      borderRadius: BorderRadius.circular(10),
+                                      borderRadius:
+                                          BorderRadius.circular(
+                                              10),
                                     ),
                                     child: Container(
-                                      alignment: Alignment.center,
+                                      alignment:
+                                          Alignment.center,
                                       child: _loading
                                           ? SizedBox(
-                                              width: (screenHeight * 0.028).clamp(20.0, 24.0),
-                                              height: (screenHeight * 0.028).clamp(20.0, 24.0),
-                                              child: const CircularProgressIndicator(
-                                                color: Colors.white,
+                                              width: (screenHeight *
+                                                      0.028)
+                                                  .clamp(20.0,
+                                                      24.0),
+                                              height: (screenHeight *
+                                                      0.028)
+                                                  .clamp(20.0,
+                                                      24.0),
+                                              child:
+                                                  const CircularProgressIndicator(
+                                                color:
+                                                    Colors.white,
                                                 strokeWidth: 2.5,
                                               ),
                                             )
                                           : Text(
-                                              _isRegisterMode ? 'Create account' : 'Sign in',
+                                              _isRegisterMode
+                                                  ? 'Create account'
+                                                  : 'Sign in',
                                               style: TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: (screenWidth * 0.04).clamp(15.0, 17.0),
-                                                letterSpacing: 0.5,
+                                                color:
+                                                    Colors.white,
+                                                fontWeight:
+                                                    FontWeight
+                                                        .w600,
+                                                fontSize: (screenWidth *
+                                                        0.04)
+                                                    .clamp(15.0,
+                                                        17.0),
+                                                letterSpacing:
+                                                    0.5,
                                               ),
                                             ),
                                     ),
@@ -488,22 +568,30 @@ class _LoginScreenState extends State<LoginScreen> {
                               SizedBox(height: screenHeight * 0.012),
 
                               TextButton(
-                                onPressed: _loading ? null : _toggleMode,
+                                onPressed:
+                                    _loading ? null : _toggleMode,
                                 style: TextButton.styleFrom(
                                   padding: EdgeInsets.symmetric(
-                                    vertical: screenHeight * 0.01,
-                                    horizontal: screenWidth * 0.02,
+                                    vertical:
+                                        screenHeight * 0.01,
+                                    horizontal:
+                                        screenWidth * 0.02,
                                   ),
                                   minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize
+                                          .shrinkWrap,
                                 ),
                                 child: Text(
                                   _isRegisterMode
                                       ? 'Already have an account? Sign in'
                                       : 'Don\'t have an account? Register',
                                   style: TextStyle(
-                                    fontSize: (screenWidth * 0.034).clamp(12.5, 14.5),
-                                    color: const Color(0xFF1976D2),
+                                    fontSize:
+                                        (screenWidth * 0.034)
+                                            .clamp(12.5, 14.5),
+                                    color:
+                                        const Color(0xFF1976D2),
                                   ),
                                 ),
                               ),
@@ -536,7 +624,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 "This app helps children learn colours and spread awareness ❤️",
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: (screenWidth * 0.03).clamp(10.0, 14.0),
+                                  fontSize: (screenWidth * 0.03)
+                                      .clamp(10.0, 14.0),
                                   color: Colors.black54,
                                 ),
                               ),
@@ -564,19 +653,21 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         Container(
           height: 56,
-          padding: const EdgeInsets.symmetric(horizontal: 14.0),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14.0),
           decoration: BoxDecoration(
             color: const Color.fromRGBO(255, 255, 255, 0.95),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: _showGenderError ? Colors.red.shade400 : Colors.grey.shade300,
+              color: _showGenderError
+                  ? Colors.red.shade400
+                  : Colors.grey.shade300,
               width: 1.0,
             ),
           ),
           child: Row(
             children: [
-              Icon(Icons.transgender, size: 20, color: Colors.grey.shade600),
-              const SizedBox(width: 12),
+              // 🔹 Removed gender icon as requested, kept only "Gender" text.
               Text(
                 'Gender',
                 style: TextStyle(
@@ -594,8 +685,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   builder: (context, constraints) {
                     final totalWidth = constraints.maxWidth;
                     final gap = 8.0;
-                    final optionWidth = (totalWidth - gap) / 2;
-                    final selectedIndex = _gender == null ? -1 : _genderOptions.indexOf(_gender!);
+                    final optionWidth =
+                        (totalWidth - gap) / 2;
+                    final selectedIndex = _gender == null
+                        ? -1
+                        : _genderOptions.indexOf(_gender!);
 
                     return SizedBox(
                       height: 40,
@@ -603,26 +697,47 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           if (selectedIndex >= 0)
                             AnimatedPositioned(
-                              left: selectedIndex == 0 ? 0 : (optionWidth + gap),
-                              duration: const Duration(milliseconds: 250),
+                              left: selectedIndex == 0
+                                  ? 0
+                                 : (optionWidth + gap - 6),
+                              duration: const Duration(
+                                  milliseconds: 250),
                               curve: Curves.easeInOut,
                               child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 250),
-                                width: optionWidth,
+                                duration: const Duration(
+                                    milliseconds: 250),
+                                // 🔹 Slightly wider highlight so "Female"
+                                // text is fully covered on all devices.
+                                width: optionWidth + 6,
                                 height: 40,
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: _gender == 'Male'
-                                        ? [Colors.blue.shade100, Colors.blue.shade50]
-                                        : [Colors.pink.shade100, Colors.pink.shade50],
+                                        ? [
+                                            Colors
+                                                .blue.shade100,
+                                            Colors
+                                                .blue.shade50
+                                          ]
+                                        : [
+                                            Colors.pink
+                                                .shade100,
+                                            Colors.pink
+                                                .shade50
+                                          ],
                                     begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
+                                    end: Alignment
+                                        .bottomRight,
                                   ),
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius:
+                                      BorderRadius.circular(
+                                          8),
                                   border: Border.all(
                                     color: _gender == 'Male'
-                                        ? Colors.blue.shade300
-                                        : Colors.pink.shade300,
+                                        ? Colors
+                                            .blue.shade300
+                                        : Colors
+                                            .pink.shade300,
                                     width: 1.5,
                                   ),
                                 ),
@@ -635,7 +750,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 label: 'Male',
                                 icon: Icons.male,
                                 width: optionWidth,
-                                isSelected: _gender == 'Male',
+                                isSelected:
+                                    _gender == 'Male',
                                 isMale: true,
                               ),
                               SizedBox(width: gap),
@@ -643,7 +759,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 label: 'Female',
                                 icon: Icons.female,
                                 width: optionWidth,
-                                isSelected: _gender == 'Female',
+                                isSelected:
+                                    _gender == 'Female',
                                 isMale: false,
                               ),
                             ],
@@ -704,7 +821,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon,
                   size: 20,
                   color: isSelected
-                      ? (isMale ? Colors.blue.shade700 : Colors.pink.shade600)
+                      ? (isMale
+                          ? Colors.blue.shade700
+                          : Colors.pink.shade600)
                       : Colors.grey.shade600,
                 ),
                 const SizedBox(width: 6),
@@ -712,9 +831,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   label,
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    fontWeight: isSelected
+                        ? FontWeight.w700
+                        : FontWeight.w500,
                     color: isSelected
-                        ? (isMale ? Colors.blue.shade800 : Colors.pink.shade700)
+                        ? (isMale
+                            ? Colors.blue.shade800
+                            : Colors.pink.shade700)
                         : Colors.grey.shade700,
                     letterSpacing: 0.2,
                   ),
@@ -752,28 +875,35 @@ class _LoginScreenState extends State<LoginScreen> {
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(color: Colors.grey.shade700),
-        floatingLabelStyle: TextStyle(color: Colors.grey.shade700),
+        floatingLabelStyle:
+            TextStyle(color: Colors.grey.shade700),
         filled: true,
-        fillColor: const Color.fromRGBO(255, 255, 255, 0.95),
+        fillColor:
+            const Color.fromRGBO(255, 255, 255, 0.95),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide:
+              BorderSide(color: Colors.grey.shade300),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide:
+              BorderSide(color: Colors.grey.shade300),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF2196F3), width: 2),
+          borderSide: const BorderSide(
+              color: Color(0xFF2196F3), width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide:
+              BorderSide(color: Colors.grey.shade300),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF2196F3), width: 2),
+          borderSide: const BorderSide(
+              color: Color(0xFF2196F3), width: 2),
         ),
         prefixIcon: Icon(icon, size: 20),
         suffixIcon: suffixIcon,
@@ -791,10 +921,12 @@ class _LoginScreenState extends State<LoginScreen> {
 // Delete Account Dialog Widget
 class _DeleteAccountDialog extends StatefulWidget {
   @override
-  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+  State<_DeleteAccountDialog> createState() =>
+      _DeleteAccountDialogState();
 }
 
-class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+class _DeleteAccountDialogState
+    extends State<_DeleteAccountDialog> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -810,14 +942,17 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16)),
       title: Row(
         children: [
-          Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 28),
+          Icon(Icons.warning_amber_rounded,
+              color: Colors.red.shade600, size: 28),
           const SizedBox(width: 10),
           const Text(
             'Delete Account',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            style: TextStyle(
+                fontSize: 20, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -829,7 +964,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           children: [
             const Text(
               'Enter your credentials to confirm account deletion:',
-              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              style: TextStyle(
+                  fontWeight: FontWeight.w500, fontSize: 14),
             ),
             const SizedBox(height: 18),
             TextFormField(
@@ -838,13 +974,16 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               textInputAction: TextInputAction.next,
               decoration: InputDecoration(
                 labelText: 'Username',
-                prefixIcon: const Icon(Icons.person_outline, size: 20),
+                prefixIcon: const Icon(Icons.person_outline,
+                    size: 20),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
                 filled: true,
                 fillColor: Colors.grey[50],
-                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(
+                        vertical: 14, horizontal: 12),
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) {
@@ -860,14 +999,18 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
                 labelText: 'Password',
-                prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                prefixIcon: const Icon(Icons.lock_outline,
+                    size: 20),
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    _obscurePassword
+                        ? Icons.visibility_off
+                        : Icons.visibility,
                     size: 20,
                   ),
                   onPressed: () {
-                    setState(() => _obscurePassword = !_obscurePassword);
+                    setState(() =>
+                        _obscurePassword = !_obscurePassword);
                   },
                 ),
                 border: OutlineInputBorder(
@@ -875,7 +1018,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 ),
                 filled: true,
                 fillColor: Colors.grey[50],
-                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(
+                        vertical: 14, horizontal: 12),
               ),
               validator: (v) {
                 if (v == null || v.isEmpty) {
@@ -886,7 +1031,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               onFieldSubmitted: (_) {
                 if (_formKey.currentState!.validate()) {
                   Navigator.pop(context, {
-                    'username': _usernameController.text.trim(),
+                    'username':
+                        _usernameController.text.trim(),
                     'password': _passwordController.text,
                   });
                 }
@@ -902,7 +1048,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.red.shade700, size: 20),
+                  Icon(Icons.info_outline,
+                      color: Colors.red.shade700, size: 20),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
@@ -925,14 +1072,17 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           onPressed: () => Navigator.pop(context),
           child: Text(
             'Cancel',
-            style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w500),
+            style: TextStyle(
+                color: Colors.grey[700],
+                fontWeight: FontWeight.w500),
           ),
         ),
         ElevatedButton(
           onPressed: () {
             if (_formKey.currentState!.validate()) {
               Navigator.pop(context, {
-                'username': _usernameController.text.trim(),
+                'username':
+                    _usernameController.text.trim(),
                 'password': _passwordController.text,
               });
             }
@@ -940,10 +1090,14 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red.shade600,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 20, vertical: 12),
           ),
-          child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w600)),
+          child: const Text('Continue',
+              style:
+                  TextStyle(fontWeight: FontWeight.w600)),
         ),
       ],
     );

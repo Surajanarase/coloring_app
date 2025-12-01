@@ -614,7 +614,7 @@ class DbService {
     return 0.0;
   }
 
-  Future<List<Map<String, dynamic>>> getDashboardRows() async {
+    Future<List<Map<String, dynamic>>> getDashboardRows() async {
     if (_currentUsername == null) {
       debugPrint('[DB] ERROR: No current user for getDashboardRows');
       return [];
@@ -628,22 +628,31 @@ class DbService {
         i.title, 
         i.total_paths, 
         i.total_area,
-        COALESCE(SUM(p.area), 0) AS sum_area,
-        COALESCE(SUM(CASE WHEN p.is_colored = 1 THEN p.area ELSE 0 END), 0) AS colored_area,
+        COALESCE(SUM(p.area), 0) AS colored_area,
         COALESCE(i.display_percent, 0) AS display_percent
       FROM images i
-      LEFT JOIN paths p ON p.image_id = i.id AND p.username = i.username
+      LEFT JOIN paths p 
+        ON p.image_id = i.id 
+       AND p.username = i.username
+       AND p.is_colored = 1
       WHERE i.username = ?
       GROUP BY i.id, i.title, i.total_paths, i.total_area, i.display_percent
       ORDER BY i.id
     ''', [_currentUsername]);
 
     final out = <Map<String, dynamic>>[];
+
     for (final r in rows) {
       final total = ((r['total_area'] as num?)?.toDouble() ?? 0).clamp(0, 1e10);
       final colored = ((r['colored_area'] as num?)?.toDouble() ?? 0).clamp(0.0, total);
-      final displayPct = ((r['display_percent'] as num?)?.toDouble() ?? 0.0).clamp(0.0, 100.0);
-      
+      double displayPct = ((r['display_percent'] as num?)?.toDouble() ?? 0.0).clamp(0.0, 100.0);
+
+      // 🔒 New 60% rule for *display* everywhere:
+      // if colored_area >= 60% of total_area => treat as 100% complete
+      if (total > 0 && colored >= 0.6 * total) {
+        displayPct = 100.0;
+      }
+
       out.add({
         'id': r['id'],
         'title': r['title'],
@@ -657,6 +666,7 @@ class DbService {
     debugPrint('[DB] Retrieved ${out.length} dashboard rows');
     return out;
   }
+
 
   // ============ DEBUG ============
 

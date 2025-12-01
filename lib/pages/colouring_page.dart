@@ -354,7 +354,7 @@ class _ColoringPageState extends State<ColoringPage>
       await _db.markPathColored(hitId, colorHex,
           imageId: widget.assetPath);
       debugPrint('[Tap] ✓ Colored path $hitId with $colorHex');
-    } else if (_currentTool == 'eraser') {
+    } else if (_currentTool == 'erase') {
       final orig = _originalFills[hitId] ?? 'none';
       _svgService.applyFillToElementById(hitId, orig);
       await _db.markPathUncolored(hitId, imageId: widget.assetPath);
@@ -440,7 +440,8 @@ class _ColoringPageState extends State<ColoringPage>
       debugPrint(
           '[Clear] ✓ Canvas cleared, ${_originalFills.length} paths reset');
     } catch (e, st) {
-      debugPrint('[Clear] ✗ Error: $e\n$st');
+      debugPrint(
+          '[Clear] ✗ Error: $e\n$st');
     }
 
     if (!mounted) return;
@@ -457,47 +458,53 @@ class _ColoringPageState extends State<ColoringPage>
   }
 
   int _calculateDisplayPercent(
-      double rawPercent, double coloredArea, double totalArea) {
-    if (totalArea > 0 && (coloredArea + _eps >= totalArea)) {
-      return 100;
-    }
-
-    if (rawPercent >= 99.0) {
-      return 100;
-    }
-
-    if (rawPercent <= 0.0) return 0;
-
-    final normalized =
-        (rawPercent / 100.0).clamp(0.0, 1.0);
-    double boosted =
-        math.pow(normalized, _progressGamma).toDouble() * 100.0;
-
-    if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
-      boosted = _minVisibleProgress;
-    }
-
-    if (rawPercent >= 30.0 && rawPercent < 95.0) {
-      final midRangeBoost =
-          math.pow(normalized, _progressGamma * 0.95)
-              .toDouble() *
-              100.0;
-      final blendFactor = 0.15;
-      boosted = boosted * (1 - blendFactor) +
-          midRangeBoost * blendFactor;
-    }
-
-    if (boosted >= 99.0 && rawPercent < 97.0) {
-      boosted = 98.0;
-    }
-
-    if (boosted > 98.0 && rawPercent < 98.0) {
-      boosted = 98.0;
-    }
-
-    return boosted.round().clamp(0, 99);
+    double rawPercent, double coloredArea, double totalArea) {
+  // ✅ NEW: 60% rule - once 60% of drawable area is colored,
+  // we *store and show* 100% everywhere (was 50%)
+  if (totalArea > 0 && coloredArea >= 0.6 * totalArea) {
+    return 100;
   }
 
+  // Existing "almost full" logic
+  if (totalArea > 0 && (coloredArea + _eps >= totalArea)) {
+    return 100;
+  }
+
+  if (rawPercent >= 99.0) {
+    return 100;
+  }
+
+  if (rawPercent <= 0.0) return 0;
+
+  final normalized =
+      (rawPercent / 100.0).clamp(0.0, 1.0);
+  double boosted =
+      math.pow(normalized, _progressGamma).toDouble() * 100.0;
+
+  if (rawPercent > 0.5 && boosted < _minVisibleProgress) {
+    boosted = _minVisibleProgress;
+  }
+
+  if (rawPercent >= 30.0 && rawPercent < 95.0) {
+    final midRangeBoost =
+        math.pow(normalized, _progressGamma * 0.95)
+            .toDouble() *
+            100.0;
+    final blendFactor = 0.15;
+    boosted = boosted * (1 - blendFactor) +
+        midRangeBoost * blendFactor;
+  }
+
+  if (boosted >= 99.0 && rawPercent < 97.0) {
+    boosted = 98.0;
+  }
+
+  if (boosted > 98.0 && rawPercent < 98.0) {
+    boosted = 98.0;
+  }
+
+  return boosted.round().clamp(0, 99);
+}
   Future<void> _saveProgress() async {
     debugPrint(
         '[Save] ============ STARTING SAVE FOR ${widget.assetPath} ============');
@@ -609,14 +616,16 @@ class _ColoringPageState extends State<ColoringPage>
         '[Sync] ✓ Complete: $coloredCount colored, $skippedCount skipped (not auto-uncolored)');
   }
 
-  String? _normalizeColor(String? raw) {
+    String? _normalizeColor(String? raw) {
     if (raw == null) return null;
     final s = raw.toLowerCase().trim();
     if (s.isEmpty) return null;
     if (s == 'none' || s == 'transparent') return null;
 
-    final rgb = RegExp(r'rgb\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)')
-        .firstMatch(s);
+    // rgb(...)
+    final rgb = RegExp(
+      r'rgb\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)',
+    ).firstMatch(s);
     if (rgb != null) {
       final r = int.parse(rgb.group(1)!).clamp(0, 255);
       final g = int.parse(rgb.group(2)!).clamp(0, 255);
@@ -626,9 +635,10 @@ class _ColoringPageState extends State<ColoringPage>
           '${b.toRadixString(16).padLeft(2, '0')}';
     }
 
-    final rgba =
-        RegExp(r'rgba\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*[\d.]+\s*\)')
-            .firstMatch(s);
+    // rgba(...)
+    final rgba = RegExp(
+      r'rgba\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*[\d.]+\s*\)',
+    ).firstMatch(s);
     if (rgba != null) {
       final r = int.parse(rgba.group(1)!).clamp(0, 255);
       final g = int.parse(rgba.group(2)!).clamp(0, 255);
@@ -638,8 +648,8 @@ class _ColoringPageState extends State<ColoringPage>
           '${b.toRadixString(16).padLeft(2, '0')}';
     }
 
-    final hexShort =
-        RegExp(r'^#([0-9a-f]{3})$').firstMatch(s);
+    // #rgb (short) => #rrggbb
+    final hexShort = RegExp(r'^#([0-9a-f]{3})$').firstMatch(s);
     if (hexShort != null) {
       final h = hexShort.group(1)!;
       final r = h[0] + h[0];
@@ -648,10 +658,13 @@ class _ColoringPageState extends State<ColoringPage>
       return '#$r$g$b';
     }
 
-    final hexFull =
-        RegExp(r'^#([0-9a-f]{6})$').firstMatch(s);
-    if (hexFull != null) return '#${hexFull.group(1)!}';
+    // #rrggbb
+    final hexFull = RegExp(r'^#([0-9a-f]{6})$').firstMatch(s);
+    if (hexFull != null) {
+      return '#${hexFull.group(1)!}';
+    }
 
+    // Named colors
     final colorNames = {
       'black': '#000000',
       'white': '#ffffff',
@@ -681,8 +694,10 @@ class _ColoringPageState extends State<ColoringPage>
       return colorNames[s]!;
     }
 
+    // Fallback: return original string
     return s;
   }
+
 
   bool _isPathColored(String currentFill, String originalFill) {
     final nCurr = _normalizeColor(currentFill);
@@ -812,17 +827,24 @@ class _ColoringPageState extends State<ColoringPage>
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-                color: active
-                    ? Colors.deepPurple
-                    : Colors.black87,
-                letterSpacing: 0.2,
+            // ⬇️ Make label responsive so "Erase" never overflows
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: active
+                        ? Colors.deepPurple
+                        : Colors.black87,
+                    letterSpacing: 0.2,
+                  ),
+                  maxLines: 1,
+                  softWrap: false,
+                ),
               ),
-              maxLines: 1,
             ),
             const SizedBox(width: 4),
           ],
@@ -949,31 +971,37 @@ class _ColoringPageState extends State<ColoringPage>
             final screenHeight = constraints.maxHeight;
 
             final horizontalPadding = screenWidth * 0.03;
-            final availableWidth =
-                screenWidth - (2 * horizontalPadding);
+            final availableWidth = screenWidth - (2 * horizontalPadding);
 
-            final viewerWidth =
-                math.min(availableWidth, screenWidth * 0.95);
+          final viewerWidth = math.min(availableWidth, screenWidth * 0.95);
 
-            // Estimates of the vertical space used by the remaining UI blocks.
-            // Undo is now inside the tools box, so no separate height needed.
-            final estimatedUndo = 0.0;
-            final estimatedPill = 84.0;
-            final estimatedPalette = 120.0;
-            final estimatedVerticalPadding =
-                screenHeight * 0.06; // top/bottom paddings + gaps
-            final reserved = estimatedUndo +
-                estimatedPill +
-                estimatedPalette +
-                estimatedVerticalPadding;
+// Ultra-compact UI elements to maximize viewer space
+const double toolsPillBoxHeight = 44.0;      // Further reduced
+const double colorPaletteHeight = 95.0;      // Further reduced
+const double spacingBetweenElements = 20.0;  // Reduced from 26
+const double bottomPadding = 4.0;            // Minimal bottom padding
 
-            // viewerHeight is the remaining space; fallback to a reasonable min & max
-            final viewerHeight =
-                (screenHeight - reserved)
-                    .clamp(180.0, screenHeight * 0.88);
-            // keep current viewer size for clamping logic (no setState — value-only)
-            _viewerSize = Size(viewerWidth, viewerHeight);
+// Total space reserved for UI below viewer
+const double totalUIHeight = toolsPillBoxHeight + 
+                              colorPaletteHeight + 
+                              spacingBetweenElements + 
+                              bottomPadding;
 
+// Calculate available height for viewer (maximum space)
+double viewerHeight = screenHeight - totalUIHeight;
+
+// Lower minimum height requirement
+if (viewerHeight < 280.0) {
+  viewerHeight = 280.0;
+}
+
+// Allow viewer to take up to 73% of screen (increased from 70%)
+final maxViewerHeight = screenHeight * 0.73;
+if (viewerHeight > maxViewerHeight) {
+  viewerHeight = maxViewerHeight;
+}
+
+_viewerSize = Size(viewerWidth, viewerHeight);
             return NotificationListener<ScrollNotification>(
               onNotification: (notification) {
                 // Only block scroll when actively zoomed or during scale gesture
@@ -985,7 +1013,7 @@ class _ColoringPageState extends State<ColoringPage>
               // viewer + tools on one screen
               child: Column(
                 children: [
-                  SizedBox(height: screenHeight * 0.008),
+                  SizedBox(height: screenHeight * 0.001),
 
                   // SVG Viewer with ENHANCED smooth zoom
                   Center(
@@ -999,29 +1027,28 @@ class _ColoringPageState extends State<ColoringPage>
                             top: 0,
                             left: 0,
                             right: 0,
-                            child: Container(
-                              key: _containerKey,
-                              width: viewerWidth,
-                              height: viewerHeight,
-                              clipBehavior: Clip.antiAlias,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius:
-                                    BorderRadius.circular(18),
-                                // BLACK BORDER AROUND VIEW BOX
-                                border: Border.all(
-                                    color: Colors.black,
-                                    width: 1.4),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x14000000),
-                                    blurRadius: 12,
-                                    offset: Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: Listener(
-                                onPointerDown: (event) {
+                           child: Container(
+  key: _containerKey,
+  width: viewerWidth,
+  height: viewerHeight,
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(
+        color: Colors.black,
+        width: 1.4),
+    boxShadow: const [
+      BoxShadow(
+        color: Color(0x14000000),
+        blurRadius: 12,
+        offset: Offset(0, 6),
+      ),
+    ],
+  ),
+  child: ClipRRect(  // ✅ Add ClipRRect wrapper
+    borderRadius: BorderRadius.circular(16.6),  // Slightly smaller to account for border
+    child: Listener(
+      onPointerDown: (event) {
                                   _pointerCount++;
                                   debugPrint(
                                       '[Gesture] Pointer down: $_pointerCount pointers');
@@ -1176,7 +1203,7 @@ class _ColoringPageState extends State<ColoringPage>
                               ),
                             ),
                           ),
-
+                          ),
                           // Reset zoom button when zoomed
                           if (_isZoomed)
                             Positioned(
@@ -1217,7 +1244,8 @@ class _ColoringPageState extends State<ColoringPage>
                     ),
                   ),
 
-                  SizedBox(height: screenHeight * 0.012),
+                SizedBox(height: screenHeight * 0.005),  // Reduced gap
+
 
                   // Tool Pills + UNDO inside same box (UNDO on left side)
                   Builder(
@@ -1232,9 +1260,10 @@ class _ColoringPageState extends State<ColoringPage>
                               totalPadding -
                               (pillSpacing * 3) -
                               28;
+                      // ⬇️ Slightly larger min width so labels fit nicely
                       final pillWidth =
                           (availableWidthForPills / 3)
-                              .clamp(70.0, 160.0);
+                              .clamp(72.0, 140.0);
 
                       return Padding(
                         padding: EdgeInsets.symmetric(
@@ -1243,7 +1272,7 @@ class _ColoringPageState extends State<ColoringPage>
                           width: viewerWidth,
                           padding:
                               const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 8),
+                                  horizontal: 8, vertical: 6),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               colors: [
@@ -1331,12 +1360,12 @@ class _ColoringPageState extends State<ColoringPage>
                                       onTap: () => setState(
                                           () =>
                                               _currentTool =
-                                                  'eraser'),
+                                                  'erase'),
                                       icon:
                                           Icons.cleaning_services_outlined,
-                                      label: 'Eraser',
+                                      label: 'Erase',
                                       active: _currentTool ==
-                                          'eraser',
+                                          'erase',
                                     ),
                                   ),
                                   SizedBox(width: pillSpacing),
@@ -1364,7 +1393,7 @@ class _ColoringPageState extends State<ColoringPage>
                     },
                   ),
 
-                  SizedBox(height: screenHeight * 0.02),
+                  SizedBox(height: screenHeight * 0.006),
 
                   // Color Palette - Responsive
                   Padding(
@@ -1372,7 +1401,7 @@ class _ColoringPageState extends State<ColoringPage>
                         horizontal: horizontalPadding),
                     child: Container(
                       width: viewerWidth,
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [
@@ -1469,7 +1498,7 @@ class _ColoringPageState extends State<ColoringPage>
                     ),
                   ),
 
-                  SizedBox(height: screenHeight * 0.03),
+                  SizedBox(height: 4),
                 ],
               ),
             );
