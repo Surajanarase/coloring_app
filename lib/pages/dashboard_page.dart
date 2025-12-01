@@ -286,6 +286,102 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  // Add this NEW method in _DashboardPageState class in dashboard_page.dart
+
+void _checkQuizForSpecificImage(String imageId) {
+  if (_rows.isEmpty) return;
+
+  // Find which index this image is at
+  final imageIndex = _rows.indexWhere((r) => r['id'] == imageId);
+  if (imageIndex == -1) {
+    debugPrint('[Dashboard] Image $imageId not found in rows');
+    return;
+  }
+
+  debugPrint('[Dashboard] Checking quiz for image at index $imageIndex');
+
+  // Define quiz trigger points: after images at indexes 2, 5, 8, 11 (images 3, 6, 9, 12)
+  final Map<int, int> quizTriggers = {
+    2: 1,  // After image 3 → Quiz 1
+    5: 2,  // After image 6 → Quiz 2
+    8: 3,  // After image 9 → Quiz 3
+    11: 4, // After image 12 → Quiz 4
+  };
+
+  // Check if this image triggers a mini quiz
+  if (quizTriggers.containsKey(imageIndex)) {
+    final quizNumber = quizTriggers[imageIndex]!;
+    final row = _rows[imageIndex];
+    
+    final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
+    final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+    final storedPercent = (row['display_percent'] as num?)?.toDouble() ?? 0.0;
+
+    int displayPercent;
+    if (storedPercent > 0 && storedPercent <= 100) {
+      displayPercent = storedPercent.round();
+    } else {
+      final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
+      displayPercent = _boostProgressPercent(rawPercent, coloredArea, totalArea);
+    }
+
+    // Check if already completed
+    if (_miniQuizCompleted[quizNumber - 1]) {
+      debugPrint('[Dashboard] Mini quiz $quizNumber already completed');
+      return;
+    }
+
+    // Check if prompt already shown in this session
+    if (_miniQuizPromptShown[quizNumber - 1]) {
+      debugPrint('[Dashboard] Mini quiz $quizNumber prompt already shown this session');
+      return;
+    }
+
+    // Check if progress meets threshold
+    if (displayPercent >= _quizUnlockThreshold && mounted) {
+      _miniQuizPromptShown[quizNumber - 1] = true;
+      debugPrint('[Dashboard] Triggering mini quiz $quizNumber for image at index $imageIndex');
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showMiniQuizDialog(quizNumber);
+      });
+    } else {
+      debugPrint('[Dashboard] Image progress ($displayPercent%) below threshold ($_quizUnlockThreshold%) for mini quiz $quizNumber');
+    }
+    return;
+  }
+
+  // Check if this is the LAST image (index 13 = 14th image)
+  if (imageIndex == _rows.length - 1) {
+    final row = _rows[imageIndex];
+    
+    final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
+    final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+    final storedPercent = (row['display_percent'] as num?)?.toDouble() ?? 0.0;
+
+    int displayPercent;
+    if (storedPercent > 0 && storedPercent <= 100) {
+      displayPercent = storedPercent.round();
+    } else {
+      final rawPercent = totalArea == 0 ? 0.0 : (coloredArea / totalArea * 100.0);
+      displayPercent = _boostProgressPercent(rawPercent, coloredArea, totalArea);
+    }
+
+    final isNowAvailable = displayPercent >= _quizUnlockThreshold && !_finalQuizCompleted;
+
+    if (isNowAvailable && mounted) {
+      debugPrint('[Dashboard] Triggering final quiz for last image');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showQuizUnlockedDialog();
+      });
+    } else {
+      debugPrint('[Dashboard] Final quiz not triggered: progress=$displayPercent%, completed=$_finalQuizCompleted');
+    }
+  } else {
+    debugPrint('[Dashboard] Image at index $imageIndex does not trigger any quiz');
+  }
+}
+
   Future<void> _showMiniQuizDialog(int quizNumber) async {
     if (!mounted) return;
 
@@ -971,6 +1067,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   return boosted.round().clamp(0, 99);
+  
 }
 
   void _computeUnlockedStates() {
@@ -1223,15 +1320,18 @@ class _DashboardPageState extends State<DashboardPage> {
         onTap: unlocked
             ? () async {
                 debugPrint('[Dashboard] Opening image: $id');
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ColoringPage(
-                        assetPath: id, title: title, username: widget.username),
-                  ),
-                );
+                // ✅ CAPTURE the returned imageId
+              final returnedImageId = await Navigator.of(context).push<String>(
+                MaterialPageRoute(
+                  builder: (_) => ColoringPage(
+                      assetPath: id, title: title, username: widget.username),
+                ),
+              );
                 debugPrint('[Dashboard] Returned from coloring page, reloading...');
                 await _loadRows();
-                _checkAndShowQuizIfAvailable();
+               if (returnedImageId != null) {
+                _checkQuizForSpecificImage(returnedImageId);
+              }
               }
             : () {
                 if (mounted) {

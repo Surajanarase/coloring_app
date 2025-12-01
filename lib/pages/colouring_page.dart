@@ -505,58 +505,47 @@ class _ColoringPageState extends State<ColoringPage>
 
   return boosted.round().clamp(0, 99);
 }
-  Future<void> _saveProgress() async {
-    debugPrint(
-        '[Save] ============ STARTING SAVE FOR ${widget.assetPath} ============');
+ // In lib/pages/colouring_page.dart, find the _saveProgress method
 
-    await _syncDbWithCurrentSvgState();
+Future<void> _saveProgress() async {
+  debugPrint('[Save] ============ STARTING SAVE FOR ${widget.assetPath} ============');
 
-    final imageId = widget.assetPath;
-    final coloredAreaQuery = await _db.getDashboardRows();
-    final row =
-        coloredAreaQuery.firstWhere((r) => r['id'] == imageId,
-            orElse: () => {});
+  await _syncDbWithCurrentSvgState();
 
-    int displayPercent = 0;
+  final imageId = widget.assetPath;
+  final coloredAreaQuery = await _db.getDashboardRows();
+  final row = coloredAreaQuery.firstWhere((r) => r['id'] == imageId, orElse: () => {});
 
-    if (row.isNotEmpty) {
-      final totalArea =
-          (row['total_area'] as num?)?.toDouble() ?? 0.0;
-      final coloredArea =
-          (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+  int displayPercent = 0;
 
-      final rawPercent =
-          totalArea > 0 ? ((coloredArea / totalArea) * 100) : 0.0;
-      displayPercent = _calculateDisplayPercent(
-          rawPercent, coloredArea, totalArea);
+  if (row.isNotEmpty) {
+    final totalArea = (row['total_area'] as num?)?.toDouble() ?? 0.0;
+    final coloredArea = (row['colored_area'] as num?)?.toDouble() ?? 0.0;
+    final rawPercent = totalArea > 0 ? ((coloredArea / totalArea) * 100) : 0.0;
+    displayPercent = _calculateDisplayPercent(rawPercent, coloredArea, totalArea);
+    await _db.updateImageDisplayPercent(imageId, displayPercent.toDouble());
 
-      await _db.updateImageDisplayPercent(
-          imageId, displayPercent.toDouble());
-
-      debugPrint(
-        '[Save] ✓ Saved: display=$displayPercent%, raw=${rawPercent.toStringAsFixed(2)}%, '
-        'colored=${coloredArea.toStringAsFixed(2)}, total=${totalArea.toStringAsFixed(2)}',
-      );
-    }
-
-    debugPrint(
-        '[Save] ============ SAVE COMPLETE ============');
-
-    await Future.delayed(const Duration(milliseconds: 150));
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-            'Progress saved! $displayPercent% complete'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    if (!mounted) return;
-    Navigator.of(context).pop();
+    debugPrint('[Save] ✓ Saved: display=$displayPercent%');
   }
+
+  debugPrint('[Save] ============ SAVE COMPLETE ============');
+
+  await Future.delayed(const Duration(milliseconds: 150));
+
+  if (!mounted) return;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('Progress saved! $displayPercent% complete'),
+      duration: const Duration(seconds: 2),
+    ),
+  );
+
+  if (!mounted) return;
+  
+  // ✅ RETURN the imageId instead of just popping
+  Navigator.of(context).pop(imageId); // ← Changed this line
+}
 
   Future<void> _syncDbWithCurrentSvgState() async {
     final doc = _svgService.doc;
