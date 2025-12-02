@@ -1,8 +1,12 @@
 // lib/services/hit_test_service.dart
+// ====================================
+// CRITICAL FIX: Changed from math.max to math.min to match BoxFit.contain
+// This ensures hit-testing works correctly on ALL device sizes
+
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'dart:math' as math;
-import 'svg_service.dart'; // same-folder import to access ViewBox
+import 'svg_service.dart';
 
 class HitTestService {
   final Map<String, ui.Path> paths;
@@ -17,12 +21,9 @@ class HitTestService {
     final sx = widgetSize.width / viewBox.width;
     final sy = widgetSize.height / viewBox.height;
 
-    // IMPORTANT:
-    // SvgViewer uses BoxFit.cover (fills the widget, may crop),
-    // while previous code used min(sx, sy) (contain). To match rendering we
-    // must use cover behavior here (math.max). This aligns hit-testing
-    // transform with what is actually drawn.
-    final scale = math.max(sx, sy);
+    // ✅ FIXED: Use math.min for BoxFit.contain (was math.max for cover)
+    // This ensures the entire SVG fits within the widget without cropping
+    final scale = math.min(sx, sy);
 
     final drawnW = viewBox.width * scale;
     final drawnH = viewBox.height * scale;
@@ -45,7 +46,7 @@ class HitTestService {
       // transform path into widget space
       final transformed = entry.value.transform(matrix);
 
-      // contains expects an ui.Offset — localPos is ui.Offset (widget coords)
+      // contains expects an ui.Offset – localPos is ui.Offset (widget coords)
       if (transformed.contains(localPos)) {
         final b = transformed.getBounds();
         final area = b.width * b.height;

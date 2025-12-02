@@ -31,7 +31,7 @@ class SvgViewer extends StatelessWidget {
         svgString,
         width: double.infinity,
         height: double.infinity,
-        fit: BoxFit.cover, // Changed from contain to cover
+        fit:  BoxFit.contain, // Changed from contain to cover
         alignment: Alignment.center,
       ),
     );
