@@ -889,11 +889,32 @@ void _checkQuizForSpecificImage(String imageId) {
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogCtx),
-              child: const Text('Close'),
-            ),
-          ],
+            Center(
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ElevatedButton(
+        onPressed: () => Navigator.pop(dialogCtx),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF58D3C7),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(25),
+          ),
+          elevation: 3,
+          shadowColor: const Color(0xFF58D3C7).withValues(alpha: 0.4),
+        ),
+        child: const Text(
+          'Close',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    ),
+  ),
+],
         );
       },
     );

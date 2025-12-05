@@ -42,6 +42,7 @@ class _ColoringPageState extends State<ColoringPage>
   bool _loading = true;
   Color? _selectedColor;
   String _currentTool = 'color';
+  bool _undoHighlight = false;
 
   final GlobalKey _containerKey = GlobalKey();
   final Map<String, String> _originalFills = {};
@@ -701,28 +702,39 @@ Future<void> _saveProgress() async {
     return true;
   }
 
-  void _undoOneStep() async {
-    String? xml;
-    try {
-      xml = _colorService.popSnapshot();
-    } catch (_) {}
+ void _undoOneStep() async {
+  // Add highlight
+  setState(() => _undoHighlight = true);
+  
+  String? xml;
+  try {
+    xml = _colorService.popSnapshot();
+  } catch (_) {}
 
-    if (xml == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nothing to undo')));
-      return;
-    }
-
-    _svgService.setSvgString(xml);
-    _buildPathsAndHitTest();
-    await _syncDbWithCurrentSvgState();
-
+  if (xml == null) {
+    setState(() => _undoHighlight = false);  // Remove highlight
     if (!mounted) return;
-    setState(() {});
+    
+    // Show "nothing to undo" message INSTANTLY
     ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Undone one step')));
+      const SnackBar(
+        content: Text('Nothing to undo'),
+        duration: Duration(milliseconds: 900),  // Shorter duration
+      ),
+    );
+    return;
   }
+
+  // Perform undo silently (no popup)
+  _svgService.setSvgString(xml);
+  _buildPathsAndHitTest();
+  await _syncDbWithCurrentSvgState();
+
+  if (!mounted) return;
+  setState(() => _undoHighlight = false);  // Remove highlight after undo
+  
+  // NO POPUP MESSAGE - silent undo operation
+}
 
   void _animateResetZoom() {
     if (_transformationController.value.isIdentity()) {
@@ -760,88 +772,68 @@ Future<void> _saveProgress() async {
     _animController!.forward();
   }
 
-  Widget _toolPill({
-    required VoidCallback onTap,
-    required IconData icon,
-    required String label,
-    required bool active,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-        decoration: BoxDecoration(
-          color: active
-              ? const Color(0xFFFFFBED)
-              : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: active
-                ? Colors.deepPurple
-                : Colors.grey.shade300,
-            width: active ? 1.8 : 1.0,
+ Widget _toolPill({
+  required VoidCallback onTap,
+  required IconData icon,
+  required String label,
+  required bool active,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFFFFBED) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: active ? Colors.deepPurple : Colors.grey.shade300,
+          width: active ? 1.5 : 1.0,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08000000),
+            blurRadius: 4,
+            offset: Offset(0, 2),
           ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x11000000),
-              blurRadius: 6,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(width: 4),
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: active
-                    ? Colors.deepPurple
-                    : Colors.grey.shade100,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Icon(
-                  icon,
-                  size: 16,
-                  color: active
-                      ? Colors.white
-                      : Colors.black54,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // ⬇️ Make label responsive so "Erase" never overflows
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: active
-                        ? Colors.deepPurple
-                        : Colors.black87,
-                    letterSpacing: 0.2,
-                  ),
-                  maxLines: 1,
-                  softWrap: false,
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-          ],
-        ),
+        ],
       ),
-    );
-  }
-
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: active ? Colors.deepPurple : Colors.grey.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Icon(
+                icon,
+                size: 16,
+                color: active ? Colors.white : Colors.black54,
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
+              color: active ? Colors.deepPurple : Colors.black87,
+              letterSpacing: 0.1,
+            ),
+            maxLines: 1,
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    ),
+  );
+}
   Widget _circleHeaderButton({
     required VoidCallback onTap,
     required IconData icon,
@@ -1237,151 +1229,87 @@ _viewerSize = Size(viewerWidth, viewerHeight);
 
 
                   // Tool Pills + UNDO inside same box (UNDO on left side)
-                  Builder(
-                    builder: (context) {
-                      final pillSpacing =
-                          screenWidth * 0.02;
-                      final totalPadding =
-                          2 * horizontalPadding + 16;
-                      // 28 = undo width
-                      final availableWidthForPills =
-                          viewerWidth -
-                              totalPadding -
-                              (pillSpacing * 3) -
-                              28;
-                      // ⬇️ Slightly larger min width so labels fit nicely
-                      final pillWidth =
-                          (availableWidthForPills / 3)
-                              .clamp(72.0, 140.0);
+                 // Tool Pills - All 4 buttons identical
+// Tool Pills - All 4 buttons identical
+// Tool Pills - All 4 buttons compact
+Builder(
+  builder: (context) {
+    final pillSpacing = screenWidth * 0.015;
+    final totalPadding = 2 * horizontalPadding + 12;
+    final availableWidthForPills = viewerWidth - totalPadding - (pillSpacing * 3);
+    final pillWidth = (availableWidthForPills / 4).clamp(60.0, 85.0);
 
-                      return Padding(
-                        padding: EdgeInsets.symmetric(
-                            horizontal: horizontalPadding),
-                        child: Container(
-                          width: viewerWidth,
-                          padding:
-                              const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 6),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [
-                                Color(0xFFF0E9FF),
-                                Color(0xFFE8F7FF)
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius:
-                                BorderRadius.circular(14),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x11000000),
-                                blurRadius: 10,
-                                offset: Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          // keep Stack wrapper to avoid big structural changes
-                          child: Stack(
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.center,
-                                children: [
-                                  // UNDO button embedded on the left side
-                                  GestureDetector(
-                                    onTap: _undoOneStep,
-                                    child: Container(
-                                      width: 28,
-                                      height: 28,
-                                      decoration:
-                                          const BoxDecoration(
-                                        gradient:
-                                            LinearGradient(
-                                          colors: [
-                                            Color(
-                                                0xFFFFF59D),
-                                            Color(
-                                                0xFFFFCC80)
-                                          ],
-                                          begin: Alignment
-                                              .topLeft,
-                                          end:
-                                              Alignment.bottomRight,
-                                        ),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Color(
-                                                0x33000000),
-                                            blurRadius: 8,
-                                            offset:
-                                                Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: const Icon(
-                                        Icons.undo,
-                                        color:
-                                            Colors.black87,
-                                        size: 16,
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(width: pillSpacing),
-                                  SizedBox(
-                                    width: pillWidth,
-                                    child: _toolPill(
-                                      onTap: () => setState(
-                                          () =>
-                                              _currentTool =
-                                                  'color'),
-                                      icon: Icons.color_lens,
-                                      label: 'Color',
-                                      active: _currentTool ==
-                                          'color',
-                                    ),
-                                  ),
-                                  SizedBox(width: pillSpacing),
-                                  SizedBox(
-                                    width: pillWidth,
-                                    child: _toolPill(
-                                      onTap: () => setState(
-                                          () =>
-                                              _currentTool =
-                                                  'erase'),
-                                      icon:
-                                          Icons.cleaning_services_outlined,
-                                      label: 'Erase',
-                                      active: _currentTool ==
-                                          'erase',
-                                    ),
-                                  ),
-                                  SizedBox(width: pillSpacing),
-                                  SizedBox(
-                                    width: pillWidth,
-                                    child: _toolPill(
-                                      onTap: () {
-                                        setState(() =>
-                                            _currentTool =
-                                                'clear');
-                                        _clearCanvasAll();
-                                      },
-                                      icon: Icons.delete_outline,
-                                      label: 'Clear',
-                                      active: _currentTool ==
-                                          'clear',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+      child: Container(
+        width: viewerWidth,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFF0E9FF), Color(0xFFE8F7FF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: pillWidth,
+              child: _toolPill(
+                onTap: _undoOneStep,
+                icon: Icons.undo,
+                label: 'Undo',
+                active: _undoHighlight,
+              ),
+            ),
+            SizedBox(width: pillSpacing),
+            SizedBox(
+              width: pillWidth,
+              child: _toolPill(
+                onTap: () => setState(() => _currentTool = 'color'),
+                icon: Icons.color_lens,
+                label: 'Color',
+                active: _currentTool == 'color',
+              ),
+            ),
+            SizedBox(width: pillSpacing),
+            SizedBox(
+              width: pillWidth,
+              child: _toolPill(
+                onTap: () => setState(() => _currentTool = 'erase'),
+                icon: Icons.backspace_outlined,
+                label: 'Erase',
+                active: _currentTool == 'erase',
+              ),
+            ),
+            SizedBox(width: pillSpacing),
+            SizedBox(
+              width: pillWidth,
+              child: _toolPill(
+                onTap: () {
+                  setState(() => _currentTool = 'clear');
+                  _clearCanvasAll();
+                },
+                icon: Icons.delete_outline,
+                label: 'Clear',
+                active: _currentTool == 'clear',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  },
+),
                   SizedBox(height: screenHeight * 0.006),
 
                   // Color Palette - Responsive
