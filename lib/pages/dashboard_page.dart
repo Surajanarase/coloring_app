@@ -708,61 +708,58 @@ void _checkQuizForSpecificImage(String imageId) {
                           ),
                         ),
                         TextButton(
-                          onPressed: unlocked
-                              ? () async {
-                                  final proceed = await showDialog<bool>(
-                                        context: dialogCtx,
-                                        barrierDismissible: true,
-                                        builder: (warnCtx) => AlertDialog(
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(16),
-                                          ),
-                                          title: const Text('Please note'),
-                                          content: const Text(
-                                            'Please color the remaining images to reach this quiz.',
-                                          ),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(warnCtx, false),
-                                              child: const Text('Cancel'),
-                                            ),
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(warnCtx, true),
-                                              child: const Text('Continue'),
-                                            ),
-                                          ],
-                                        ),
-                                      ) ??
-                                      false;
+  onPressed: () async {
+    // If quiz is still locked → show info
+    if (!unlocked) {
+      await showDialog<void>(
+        context: dialogCtx,
+        barrierDismissible: true,
+        builder: (warnCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Please note'),
+          content: const Text(
+            'Please color the remaining images to reach this quiz.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(warnCtx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
-                                  if (!proceed) return;
-                                  if (!dialogCtx.mounted) return;
-                                  Navigator.pop(dialogCtx);
-                                  if (!mounted) return;
+    // ✅ Unlocked (first time OR retake) → directly open quiz
+    if (!dialogCtx.mounted) return;
+    Navigator.pop(dialogCtx);
+    if (!mounted) return;
 
-                                  await Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => MiniQuizPage(
-                                        username: widget.username,
-                                        quizId: quizId,
-                                        quizNumber: i + 1,
-                                      ),
-                                    ),
-                                  );
-                                  await _loadRows();
-                                  _checkAndShowQuizIfAvailable();
-                                }
-                              : null,
-                          child: Text(
-                            taken
-                                ? 'Retake'
-                                : (unlocked ? 'Take quiz' : 'Locked'),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MiniQuizPage(
+          username: widget.username,
+          quizId: quizId,
+          quizNumber: i + 1,
+        ),
+      ),
+    );
+    await _loadRows();
+    _checkAndShowQuizIfAvailable();
+  },
+  child: Text(
+    taken
+        ? 'Retake'
+        : (unlocked ? 'Take quiz' : 'Locked'),
+    style: const TextStyle(fontWeight: FontWeight.w600),
+  ),
+),
+
+
+
                       ],
                     ),
                   );
@@ -825,61 +822,53 @@ void _checkQuizForSpecificImage(String imageId) {
                               finalTaken || _isFinalQuizUnlocked();
 
                           return TextButton(
-                            onPressed: finalUnlocked
-                                ? () async {
-                                    final proceed = await showDialog<bool>(
-                                          context: dialogCtx,
-                                          barrierDismissible: true,
-                                          builder: (warnCtx) => AlertDialog(
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                            ),
-                                            title: const Text('Please note'),
-                                            content: const Text(
-                                              'Please color the remaining images to reach this quiz.',
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                        warnCtx, false),
-                                                child: const Text('Cancel'),
-                                              ),
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                        warnCtx, true),
-                                                child: const Text('Continue'),
-                                              ),
-                                            ],
-                                          ),
-                                        ) ??
-                                        false;
+  onPressed: () async {
+    // If final quiz is still locked → show info
+    if (!finalUnlocked) {
+      await showDialog<void>(
+        context: dialogCtx,
+        barrierDismissible: true,
+        builder: (warnCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Please note'),
+          content: const Text(
+            'Please color the remaining images to reach this quiz.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(warnCtx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
-                                    if (!proceed) return;
-                                    if (!dialogCtx.mounted) return;
-                                    Navigator.pop(dialogCtx);
-                                    if (!mounted) return;
+    // ✅ Unlocked (first time OR retake) → directly open final quiz
+    if (!dialogCtx.mounted) return;
+    Navigator.pop(dialogCtx);
+    if (!mounted) return;
 
-                                    await Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            QuizPage(username: widget.username),
-                                      ),
-                                    );
-                                    await _loadRows();
-                                    _checkAndShowQuizIfAvailable();
-                                  }
-                                : null,
-                            child: Text(
-                              finalTaken
-                                  ? 'Retake'
-                                  : (finalUnlocked ? 'Take quiz' : 'Locked'),
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          );
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QuizPage(username: widget.username),
+      ),
+    );
+    await _loadRows();
+    _checkAndShowQuizIfAvailable();
+  },
+  child: Text(
+    finalTaken
+        ? 'Retake'
+        : (finalUnlocked ? 'Take quiz' : 'Locked'),
+    style: const TextStyle(fontWeight: FontWeight.w600),
+  ),
+);
+
+
                         },
                       ),
                     ],
@@ -895,7 +884,7 @@ void _checkQuizForSpecificImage(String imageId) {
       child: ElevatedButton(
         onPressed: () => Navigator.pop(dialogCtx),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF58D3C7),
+           backgroundColor: const Color(0xFFFF6B6B),
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
           shape: RoundedRectangleBorder(

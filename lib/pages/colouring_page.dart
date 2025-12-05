@@ -703,23 +703,28 @@ Future<void> _saveProgress() async {
   }
 
  void _undoOneStep() async {
-  // Add highlight
-  setState(() => _undoHighlight = true);
-  
+  // Add highlight and mark UNDO as the current "tool"
+  setState(() {
+    _undoHighlight = true;
+    _currentTool = 'undo';
+     _selectedColor = null; // ✅ keeps Undo pill selected
+  });
+
   String? xml;
   try {
     xml = _colorService.popSnapshot();
   } catch (_) {}
 
   if (xml == null) {
-    setState(() => _undoHighlight = false);  // Remove highlight
+    // Keep Undo selected, just clear the transient highlight flag
+    setState(() => _undoHighlight = false);
     if (!mounted) return;
-    
+
     // Show "nothing to undo" message INSTANTLY
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Nothing to undo'),
-        duration: Duration(milliseconds: 900),  // Shorter duration
+        duration: Duration(milliseconds: 900),
       ),
     );
     return;
@@ -731,10 +736,13 @@ Future<void> _saveProgress() async {
   await _syncDbWithCurrentSvgState();
 
   if (!mounted) return;
-  setState(() => _undoHighlight = false);  // Remove highlight after undo
-  
+
+  // Keep Undo visually selected via _currentTool, only clear transient flag
+  setState(() => _undoHighlight = false);
+
   // NO POPUP MESSAGE - silent undo operation
 }
+
 
   void _animateResetZoom() {
     if (_transformationController.value.isIdentity()) {
@@ -1261,50 +1269,57 @@ Builder(
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: pillWidth,
-              child: _toolPill(
-                onTap: _undoOneStep,
-                icon: Icons.undo,
-                label: 'Undo',
-                active: _undoHighlight,
-              ),
-            ),
-            SizedBox(width: pillSpacing),
-            SizedBox(
-              width: pillWidth,
-              child: _toolPill(
-                onTap: () => setState(() => _currentTool = 'color'),
-                icon: Icons.color_lens,
-                label: 'Color',
-                active: _currentTool == 'color',
-              ),
-            ),
-            SizedBox(width: pillSpacing),
-            SizedBox(
-              width: pillWidth,
-              child: _toolPill(
-                onTap: () => setState(() => _currentTool = 'erase'),
-                icon: Icons.backspace_outlined,
-                label: 'Erase',
-                active: _currentTool == 'erase',
-              ),
-            ),
-            SizedBox(width: pillSpacing),
-            SizedBox(
-              width: pillWidth,
-              child: _toolPill(
-                onTap: () {
-                  setState(() => _currentTool = 'clear');
-                  _clearCanvasAll();
-                },
-                icon: Icons.delete_outline,
-                label: 'Clear',
-                active: _currentTool == 'clear',
-              ),
-            ),
-          ],
+       children: [
+  SizedBox(
+    width: pillWidth,
+    child: _toolPill(
+      onTap: _undoOneStep,
+      icon: Icons.undo,
+      label: 'Undo',
+      active: _currentTool == 'undo' || _undoHighlight,
+    ),
+  ),
+  SizedBox(width: pillSpacing),
+  SizedBox(
+    width: pillWidth,
+    child: _toolPill(
+      onTap: () => setState(() => _currentTool = 'color'),
+      icon: Icons.color_lens,
+      label: 'Color',
+      active: _currentTool == 'color',
+    ),
+  ),
+  SizedBox(width: pillSpacing), // ✅ ADD THIS LINE
+  SizedBox(
+    width: pillWidth,
+    child: _toolPill(
+      onTap: () => setState(() {
+        _currentTool = 'erase';
+        _selectedColor = null; // ✅ deselect color when switching to Erase
+      }),
+      icon: Icons.backspace_outlined,
+      label: 'Erase',
+      active: _currentTool == 'erase',
+    ),
+  ),
+  SizedBox(width: pillSpacing),
+  SizedBox(
+    width: pillWidth,
+    child: _toolPill(
+      onTap: () {
+        setState(() {
+          _currentTool = 'clear';
+          _selectedColor = null; // ✅ deselect color when switching to Clear
+        });
+        _clearCanvasAll();
+      },
+      icon: Icons.delete_outline,
+      label: 'Clear',
+      active: _currentTool == 'clear',
+    ),
+  ),
+],
+
         ),
       ),
     );

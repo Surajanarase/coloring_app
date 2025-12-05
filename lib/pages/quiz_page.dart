@@ -77,7 +77,7 @@ class _QuizPageState extends State<QuizPage> {
         "Until you feel better"
       ],
       correctAnswer: 3,
-      explanation: "You must take the medicine exactly as directed for the full 10 days, even if you start feeling better.",
+      explanation: "You must take the medicine exactly as directed by Doctor, even if you start feeling better.",
     ),
     QuizQuestion(
       question: "What symptoms did Maria have besides a sore throat?",
@@ -193,74 +193,129 @@ class _QuizPageState extends State<QuizPage> {
   Future<void> _showFinalResults() async {
   final percentage = (_score / _questions.length * 100).round();
 
-  // 🚨 async gap
   await _db.saveQuizResult(
     quizId: 'final',
     score: _score,
     totalQuestions: _questions.length,
   );
 
-  // 🔒 SAFE — ensure widget is still mounted after await
   if (!mounted) return;
 
-  final screenW = MediaQuery.of(context).size.width;
-  final dialogIconSize = screenW < 420 ? 28.0 : 32.0;
-
-  showDialog(
+  await showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: Row(
-        children: [
-          Icon(
-            percentage >= 70 ? Icons.emoji_events : Icons.info_outline,
-            color: percentage >= 70 ? Colors.amber : Colors.blue,
-            size: dialogIconSize,
+    builder: (dialogCtx) {
+      final size = MediaQuery.of(dialogCtx).size;
+      final isSmallHeight = size.height < 650;
+
+      final message = percentage >= 90
+          ? 'Excellent! You really understand how to protect your heart!'
+          : percentage >= 70
+              ? 'Great job! You learned a lot about heart health!'
+              : 'Good effort! Remember to always visit the clinic for a sore throat.';
+
+      return AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+
+              // ✅ Centered Title — No icon
+              Text(
+                'Quiz Complete!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              Text(
+                'Your Score: $_score/${_questions.length}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                '$percentage%',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: isSmallHeight ? 30 : 34,
+                  fontWeight: FontWeight.w800,
+                  color: percentage >= 70 ? Colors.green : Colors.orange,
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // 🎉 Big celebration emoji
+              const Text(
+                '🎉',
+                style: TextStyle(
+                  fontSize: 44,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // ✅ Small Circular Close Button (center)
+              Center(
+                child: InkWell(
+                  onTap: () {
+                    Navigator.of(dialogCtx).pop(); // close popup
+                    Navigator.of(dialogCtx).pop(); // go back 1 screen (dashboard)
+                  },
+                  borderRadius: BorderRadius.circular(40),
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF58D3C7),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+            ],
           ),
-          const SizedBox(width: 12),
-          const Expanded(child: Text('Quiz Complete!')),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Your Score: $_score/${_questions.length}',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$percentage%',
-            style: TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              color: percentage >= 70 ? Colors.green : Colors.orange,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            percentage >= 90
-                ? 'Excellent! You really understand how to protect your heart! 🎉'
-                : percentage >= 70
-                    ? 'Great job! You learned a lot about heart health! 👍'
-                    : 'Good try! Remember to always go to the clinic for a sore throat! 💪',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            Navigator.pop(ctx);
-            Navigator.pop(context);
-          },
-          child: const Text('Back to Dashboard'),
         ),
-      ],
-    ),
+      );
+    },
   );
 }
+
 
 
   @override
@@ -345,20 +400,25 @@ class _QuizPageState extends State<QuizPage> {
                     Container(
                       padding: EdgeInsets.all(isSmall ? 16 : 20),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x11000000),
-                            blurRadius: 10,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
+  gradient: const LinearGradient(
+    colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  ),
+  borderRadius: BorderRadius.circular(16),
+  border: Border.all(
+    color: Colors.grey.shade300,
+    width: 2,
+  ),
+  boxShadow: const [
+    BoxShadow(
+      color: Color(0x11000000),
+      blurRadius: 10,
+      offset: Offset(0, 4),
+    ),
+  ],
+),
+
                       child: Text(
                         question.question,
                         style: TextStyle(

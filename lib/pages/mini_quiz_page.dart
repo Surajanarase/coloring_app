@@ -69,12 +69,13 @@ class _MiniQuizPageState extends State<MiniQuizPage> {
                 "When your throat hurts, you should always tell an adult and go to the clinic for proper medicine.",
           ),
           QuizQuestion(
-            question: "Why is a sore throat important?",
+            question: "Why should you not ignore a sore throat?",
+
             options: [
               "It can lead to a sick heart if not treated",
               "It is never serious",
               "Only adults should worry",
-              "It always goes away alone"
+              "You don’t need medicine"
             ],
             correctAnswer: 0,
             explanation:
@@ -259,72 +260,122 @@ class _MiniQuizPageState extends State<MiniQuizPage> {
     totalQuestions: _questions.length,
   );
 
-  // ✅ Ensure the State is still mounted before using context
   if (!mounted) return;
 
-  final screenW = MediaQuery.of(context).size.width;
-  final dialogIconSize = screenW < 420 ? 28.0 : 32.0;
-
-  showDialog(
+  await showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: Row(
-        children: [
-          Icon(
-            percentage >= 70 ? Icons.emoji_events : Icons.info_outline,
-            color: percentage >= 70 ? Colors.amber : Colors.blue,
-            size: dialogIconSize,
+    builder: (dialogCtx) {
+      final size = MediaQuery.of(dialogCtx).size;
+      final isSmallHeight = size.height < 650;
+
+      final message = percentage >= 90
+          ? 'Super work! You are a heart hero!'
+          : percentage >= 70
+              ? 'Great job! You are learning how to protect your heart!'
+              : 'Good try! Remember: always visit the clinic for a sore throat.';
+
+      return AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+
+              // 🚫 Removed the icon completely — Title only
+              Text(
+                'Mini Quiz ${widget.quizNumber} Completed!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+                softWrap: true,
+              ),
+
+              const SizedBox(height: 16),
+
+              Text(
+                'Your Score: $_score/${_questions.length}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                '$percentage%',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: isSmallHeight ? 28 : 32,
+                  fontWeight: FontWeight.w800,
+                  color: percentage >= 70 ? Colors.green : Colors.orange,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              const Text(
+                '🎉',
+                style: TextStyle(fontSize: 44),
+              ),
+
+              const SizedBox(height: 20),
+
+              // ✅ Small circular close button at center
+              Center(
+                child: InkWell(
+                  onTap: () {
+                    Navigator.of(dialogCtx).pop(); // close dialog
+                    Navigator.of(dialogCtx).pop(); // go back to colouring page
+                  },
+                  borderRadius: BorderRadius.circular(40),
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF58D3C7),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Mini Quiz ${widget.quizNumber} Complete!',
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Your Score: $_score/${_questions.length}',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$percentage%',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: percentage >= 70 ? Colors.green : Colors.orange,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            percentage >= 90
-                ? 'Super work! You are a heart hero! 🎉'
-                : percentage >= 70
-                    ? 'Great job! You are learning how to protect your heart! 👍'
-                    : 'Good try! Remember: always visit the clinic for a sore throat 💪',
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            // ✅ Use ctx only; no use_build_context_synchronously warning
-            Navigator.of(ctx).pop(); // close dialog
-            Navigator.of(ctx).pop(); // go back to colouring screen
-          },
-          child: const Text('Back to colouring'),
         ),
-      ],
-    ),
+      );
+    },
   );
 }
+
 
 
   @override
@@ -416,32 +467,37 @@ class _MiniQuizPageState extends State<MiniQuizPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
-                      padding: EdgeInsets.all(isSmall ? 16 : 20),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x11000000),
-                            blurRadius: 10,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        question.question,
-                        style: TextStyle(
-                          fontSize: headlineSize,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
+  padding: EdgeInsets.all(isSmall ? 16 : 20),
+  decoration: BoxDecoration(
+    gradient: const LinearGradient(
+      colors: [Color(0xFFFFF0F4), Color(0xFFEFFCF4)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(
+      color: Colors.grey.shade300,
+      width: 2,
+    ),
+    boxShadow: const [
+      BoxShadow(
+        color: Color(0x11000000),
+        blurRadius: 10,
+        offset: Offset(0, 4),
+      ),
+    ],
+  ),
+  child: Text(
+    question.question,
+    style: TextStyle(
+      fontSize: headlineSize,
+      fontWeight: FontWeight.w700,
+      color: Colors.black87,
+    ),
+    textAlign: TextAlign.center,
+  ),
+),
+
 
                     SizedBox(height: screenW * 0.06),
 
